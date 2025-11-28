@@ -1,0 +1,14 @@
+export const INVOICE_STORAGE_KEY = "last-invoice-number";
+export const INVOICE_HISTORY_KEY = "invoice-history";
+export const BILL_FROM_PERSIST_KEY = "invoice-keep-bill-from";
+export const BILL_FROM_DATA_KEY = "invoice-bill-from-data";
+export const SAVED_CLIENTS_KEY = "invoice-saved-clients";
+export const INVOICE_DRAFT_KEY = "invoice-draft";
+export const PROJECTS_DATA_KEY = "projects-data";
+export const PROJECT_TASKS_KEY = "project-tasks-data";
+export const SAVED_ADVANCES_KEY = "invoice-advance-payments";
+export const APPOINTMENTS_DATA_KEY = "invoice-appointments";
+export const CONTRACTS_DATA_KEY = "invoice-contracts";
+export const PROPOSALS_DATA_KEY = "invoice-proposals";
+export const PROJECT_NOTIFICATIONS_KEY = "project-task-notifications";
+export const UNPAID_FOLLOWUPS_KEY = "invoice-unpaid-followups";

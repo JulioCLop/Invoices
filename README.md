@@ -1,8 +1,18 @@
-# Getting Started with Create React App
+# Tri-Tech Invoice Creator
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Single-page React app for creating invoices, printing/exporting them, logging history, and reviewing every transaction in an Excel-style grid at `/transactions`. When configured with EmailJS it can also send a polished invoice email (with an auto-generated PDF attachment) that mirrors the web view.
 
-## Available Scripts
+## Email + Payment Configuration
+
+1. Copy `.env.example` to `.env` and fill in the EmailJS values:
+   - `REACT_APP_EMAILJS_SERVICE_ID` – e.g. `service_ryjjm0m`.
+   - `REACT_APP_EMAILJS_TEMPLATE_ID` – find this in EmailJS → Email Templates.
+   - `REACT_APP_EMAILJS_PUBLIC_KEY` – EmailJS Account → API Keys (this is safe to expose to the browser).
+   - Optional: update `REACT_APP_PAYPAL_LINK` so the outgoing email shows accurate payment instructions.
+2. In EmailJS, edit your invoice template so the “To email” field is set to `{{to_email}}` (otherwise every send is delivered only to the address configured in EmailJS). While there, ensure the body uses the same variable names referenced in `src/Pages/InvoicePage.jsx` (`client_name`, `invoice_number`, `invoice_date`, `invoice_total`, `work_completed`, `paypal_link`, etc.).
+3. Restart `npm start` so Create React App reloads the environment variables. When all three EmailJS vars are present the “Print & Send Invoice” button will automatically dispatch via the EmailJS REST API (including a generated PDF summary attachment); otherwise it will fall back to opening your mail client.
+
+## Local Development
 
 In the project directory, you can run:
 

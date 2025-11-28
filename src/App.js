@@ -1,24 +1,32 @@
-import logo from './logo.svg';
-import './App.css';
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import Home from "./Pages/Home";
+import InvoicePage from "./Pages/InvoicePage";
+import Transactions from "./Pages/Transactions";
+import Insights from "./Pages/Insights";
+import Quote from "./Pages/Quote";
+import Projects from "./Pages/Projects";
+import AppNavigation from "./Components/AppNavigation";
+import Schedule from "./Pages/Schedule";
+import Expenses from "./Pages/Expenses";
+import TaxAssistant from "./Pages/TaxAssistant";
+import "./App.css";
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Router>
+      <AppNavigation />
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/invoice" element={<InvoicePage />} />
+        <Route path="/transactions" element={<Transactions />} />
+        <Route path="/insights" element={<Insights />} />
+        <Route path="/quote" element={<Quote />} />
+        <Route path="/projects" element={<Projects />} />
+        <Route path="/schedule" element={<Schedule />} />
+        <Route path="/expenses" element={<Expenses />} />
+        <Route path="/tax" element={<TaxAssistant />} />
+      </Routes>
+    </Router>
   );
 }
 
