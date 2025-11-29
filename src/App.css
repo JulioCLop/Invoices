@@ -3180,6 +3180,10 @@ textarea.input.control {
   background: rgba(255, 255, 255, 0.05);
   font-family: "Inter", "Segoe UI", sans-serif;
 }
+.invoice-finance-grid .statement-card {
+  width: 100%;
+}
+
 .statement-card .statement-controls {
   display: flex;
   gap: 12px;
