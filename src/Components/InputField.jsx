@@ -8,6 +8,8 @@ export default function InputField({
   placeholder = "",
   multiline = false,
   rows = 3,
+  hint = "",
+  hintTone = "muted",
 }) {
   const InputTag = multiline ? "textarea" : "input";
 
@@ -23,6 +25,15 @@ export default function InputField({
         onChange={(e) => setValue(e.target.value)}
         aria-label={label}
       />
+      {hint ? (
+        <p
+          className={`input-hint${
+            hintTone === "error" ? " input-hint--error" : ""
+          }`}
+        >
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }

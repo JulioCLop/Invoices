@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import emailjs from "@emailjs/browser";
 import InvoiceHeader from "../Components/InvoiceHeader";
 import InvoiceTable from "../Components/InvoiceTable";
 import InvoiceTotals from "../Components/InvoiceTotals";
 import QuoteReference from "../Components/QuoteReference";
+import CommandPalette from "../Components/CommandPalette";
 import {
   fetchInvoices,
   saveInvoice as saveInvoiceRecord,
@@ -26,6 +27,8 @@ import {
   CONTRACTS_DATA_KEY,
   PROPOSALS_DATA_KEY,
   UNPAID_FOLLOWUPS_KEY,
+  PROJECT_TASKS_KEY,
+  INVOICE_HISTORY_KEY,
 } from "../utils/storageKeys";
 
 const BASE_INVOICE_NUMBER = "INV-0000";
@@ -57,6 +60,15 @@ const cloneLineItems = (lineItems = []) =>
     hours: Number(item.hours) || 0,
     price: Number(item.price) || 0,
   }));
+
+const getTrimmedValue = (value) =>
+  typeof value === "string" ? value.trim() : "";
+
+const formatCurrency = (value) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value) || 0);
 
 const readPersistPreference = () => {
   if (typeof window === "undefined") return true;
@@ -105,6 +117,17 @@ const readProjectsData = () => {
     return stored ? JSON.parse(stored) : [];
   } catch (err) {
     console.error("Unable to read projects data", err);
+    return [];
+  }
+};
+
+const readProjectTasksData = () => {
+  if (typeof window === "undefined") return [];
+  try {
+    const stored = window.localStorage.getItem(PROJECT_TASKS_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (err) {
+    console.error("Unable to read project tasks", err);
     return [];
   }
 };
@@ -212,6 +235,9 @@ export default function InvoicePage() {
   );
   const [dueDate, setDueDate] = useState(() => existingDraft.dueDate || "");
   const [invoiceHistory, setInvoiceHistory] = useState([]);
+  const [isDataLoading, setIsDataLoading] = useState(true);
+  const [isCommandOpen, setIsCommandOpen] = useState(false);
+  const [activeStep, setActiveStep] = useState("details");
   const [toast, setToast] = useState(null);
   const [isEmailSending, setIsEmailSending] = useState(false);
   const [emailSubject, setEmailSubject] = useState("");
@@ -242,9 +268,12 @@ export default function InvoicePage() {
     readUnpaidFollowUps()
   );
   const [historySelection, setHistorySelection] = useState("");
+  const [editingInvoiceId, setEditingInvoiceId] = useState("");
+  const [isHistoryUpdatePending, setIsHistoryUpdatePending] = useState(false);
   const [projectsForShare, setProjectsForShare] = useState(() =>
     readProjectsData()
   );
+  const printPreviewRef = useRef(null);
   const [shareProjectId, setShareProjectId] = useState("");
   const [advancePayments, setAdvancePayments] = useState([]);
   const [advanceForm, setAdvanceForm] = useState({
@@ -262,6 +291,13 @@ export default function InvoicePage() {
   );
   const [contracts, setContracts] = useState(() => readContractsData());
   const [proposals, setProposals] = useState(() => readProposalsData());
+  const [projectTasks, setProjectTasks] = useState(() =>
+    readProjectTasksData()
+  );
+  const [weeklyProjectHours, setWeeklyProjectHours] = useState("20");
+  const [showDueReminderModal, setShowDueReminderModal] = useState(false);
+  const [pendingInvoiceAction, setPendingInvoiceAction] = useState(null);
+  const [pendingActionLabel, setPendingActionLabel] = useState("");
   const [appointmentForm, setAppointmentForm] = useState({
     client: "",
     date: "",
@@ -282,6 +318,25 @@ export default function InvoicePage() {
     status: "Draft",
     notes: "",
   });
+  const [billTrackerVisibleCount, setBillTrackerVisibleCount] = useState(4);
+
+  const persistInvoiceHistory = (transformer) => {
+    setInvoiceHistory((prev) => {
+      const next =
+        typeof transformer === "function" ? transformer(prev) : transformer;
+      try {
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(
+            INVOICE_HISTORY_KEY,
+            JSON.stringify(next)
+          );
+        }
+      } catch (err) {
+        console.error("Unable to persist invoice history", err);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -423,19 +478,23 @@ export default function InvoicePage() {
     };
   };
 
-  const serializeClient = (client) => ({
-    id: client.id,
-    name: client.billToName || "Unnamed Client",
-    email: client.billToEmail || "",
-    details: {
-      recipientEmail: client.recipientEmail || "",
-      billToDetails: client.billToDetails || "",
-    },
-  });
+  const serializeClient = (client) => {
+    const payload = {
+      name: client.billToName || "Unnamed Client",
+      email: client.billToEmail || "",
+      details: {
+        recipientEmail: client.recipientEmail || "",
+        billToDetails: client.billToDetails || "",
+      },
+    };
+    if (client.id) payload.id = client.id;
+    return payload;
+  };
 
   useEffect(() => {
     let alive = true;
     (async () => {
+      setIsDataLoading(true);
       try {
         const [invoiceRows, paymentRows, retainerRows, clientRows] =
           await Promise.all([
@@ -449,12 +508,31 @@ export default function InvoicePage() {
         setPayments(paymentRows.map(deserializePayment));
         setAdvancePayments(retainerRows.map(deserializeRetainer));
         setCustomClients(clientRows.map(deserializeClient));
+        setIsDataLoading(false);
       } catch (err) {
         console.error("Unable to load data from Supabase", err);
+        setIsDataLoading(false);
       }
     })();
     return () => {
       alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleCommandKey = (event) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key &&
+        event.key.toLowerCase() === "k"
+      ) {
+        event.preventDefault();
+        setIsCommandOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleCommandKey);
+    return () => {
+      window.removeEventListener("keydown", handleCommandKey);
     };
   }, []);
 
@@ -488,6 +566,18 @@ export default function InvoicePage() {
       console.error("Unable to store bill-from info", err);
     }
   }, [persistBillFrom, billFromName, billFromDetails]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        INVOICE_HISTORY_KEY,
+        JSON.stringify(invoiceHistory)
+      );
+    } catch (err) {
+      console.error("Unable to store invoice history", err);
+    }
+  }, [invoiceHistory]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -622,6 +712,20 @@ export default function InvoicePage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [invoiceHistory]);
 
+  const totalBillTrackerInvoices = useMemo(
+    () =>
+      clientHistory.reduce((sum, client) => sum + client.invoices.length, 0),
+    [clientHistory]
+  );
+
+  useEffect(() => {
+    if (billTrackerVisibleCount > totalBillTrackerInvoices) {
+      setBillTrackerVisibleCount(
+        Math.max(4, totalBillTrackerInvoices || 0)
+      );
+    }
+  }, [billTrackerVisibleCount, totalBillTrackerInvoices]);
+
   const emailHistory = useMemo(
     () =>
       invoiceHistory
@@ -629,6 +733,50 @@ export default function InvoicePage() {
         .sort((a, b) => new Date(b.emailedAt) - new Date(a.emailedAt)),
     [invoiceHistory]
   );
+
+  const getInvoiceTimestamp = (invoice) => {
+    const candidateDates = [
+      invoice.invoiceDate,
+      invoice.createdAt,
+      invoice.emailedAt,
+    ].filter(Boolean);
+    for (const iso of candidateDates) {
+      const parsed = new Date(iso);
+      if (!Number.isNaN(parsed.getTime())) return parsed.getTime();
+    }
+    return null;
+  };
+
+  const clientInvoiceGapMap = useMemo(() => {
+    const gapMap = new Map();
+    clientHistory.forEach((client) => {
+      const sorted = client.invoices
+        .slice()
+        .sort(
+          (a, b) =>
+            (getInvoiceTimestamp(a) || 0) - (getInvoiceTimestamp(b) || 0)
+        );
+      sorted.forEach((invoice, index) => {
+        if (index === 0) {
+          gapMap.set(invoice.id, null);
+          return;
+        }
+        const prev = sorted[index - 1];
+        const prevTime = getInvoiceTimestamp(prev);
+        const currentTime = getInvoiceTimestamp(invoice);
+        if (prevTime === null || currentTime === null) {
+          gapMap.set(invoice.id, null);
+          return;
+        }
+        const diffDays = Math.max(
+          0,
+          Math.round((currentTime - prevTime) / MS_PER_DAY)
+        );
+        gapMap.set(invoice.id, diffDays);
+      });
+    });
+    return gapMap;
+  }, [clientHistory]);
 
   const selectedInvoiceEntry = useMemo(
     () =>
@@ -638,16 +786,13 @@ export default function InvoicePage() {
     [invoiceHistory, selectedInvoiceId]
   );
 
-  const getTrimmedValue = (value) =>
-    typeof value === "string" ? value.trim() : "";
-
-  const buildClientKey = (name, email) => {
+  const buildClientKey = useCallback((name, email) => {
     const normalizedName = (
       getTrimmedValue(name) || "Unnamed Client"
     ).toLowerCase();
     const normalizedEmail = (getTrimmedValue(email) || "").toLowerCase();
     return `${normalizedName}|${normalizedEmail}`;
-  };
+  }, []);
 
   const savedClients = useMemo(() => {
     const latest = new Map();
@@ -686,7 +831,7 @@ export default function InvoicePage() {
     return Array.from(latest.values())
       .map(({ createdTime, ...client }) => client)
       .sort((a, b) => a.billToName.localeCompare(b.billToName));
-  }, [invoiceHistory, customClients]);
+  }, [invoiceHistory, customClients, buildClientKey]);
 
   const handleSelectSavedClient = (key) => {
     setSelectedClientKey(key);
@@ -787,37 +932,60 @@ export default function InvoicePage() {
     handleAddClientToSaved();
   };
 
-  const formatCurrency = (value) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(Number(value) || 0);
+const formatDate = (isoString) =>
+  new Date(isoString).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 
-  const formatDate = (isoString) =>
-    new Date(isoString).toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+const parseDateSafe = (value) => {
+  if (!value) return null;
+  const stringValue = typeof value === "string" ? value : String(value);
+  const datePart = stringValue.split("T")[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    const [year, month, day] = datePart.split("-").map(Number);
+    const date = new Date(year, month - 1, day, 12, 0, 0); // midday to avoid timezone drift
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 
-  const formatDateTime = (isoString) => {
-    const date = new Date(isoString);
-    const datePart = date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
+const formatDateTime = (isoString) => {
+  const date = new Date(isoString);
+  const datePart = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
     });
     const timePart = date.toLocaleTimeString(undefined, {
       hour: "numeric",
       minute: "2-digit",
-    });
-    return { datePart, timePart };
-  };
+  });
+  return { datePart, timePart };
+};
 
-  const formatAppointmentDate = (date, time) => {
-    if (!date) return "Date pending";
-    const stamp = new Date(`${date}T${time || "00:00"}`);
-    if (Number.isNaN(stamp.getTime())) return date;
-    return stamp.toLocaleString(undefined, {
+const toInputDate = (value) => {
+  if (!value) return "";
+  const parsed = parseDateSafe(value);
+  if (!parsed) return "";
+  return parsed.toISOString().split("T")[0];
+};
+
+const toIsoFromInputDate = (inputValue) => {
+  if (!inputValue) return "";
+  const [year, month, day] = inputValue.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return "";
+  const date = new Date(year, month - 1, day, 12, 0, 0); // midday to avoid timezone shifts
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
+};
+
+const formatAppointmentDate = (date, time) => {
+  if (!date) return "Date pending";
+  const stamp = new Date(`${date}T${time || "00:00"}`);
+  if (Number.isNaN(stamp.getTime())) return date;
+  return stamp.toLocaleString(undefined, {
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -881,28 +1049,31 @@ export default function InvoicePage() {
     PAYMENT_CONFIG.paypal ||
     "Set REACT_APP_PAYPAL_LINK in .env to customize this link.";
 
-  const buildLineItemsText = (lineItems = []) => {
-    const validLines = (lineItems || [])
-      .filter(
-        (item) =>
-          item?.description?.trim() &&
-          Number(item.hours) > 0 &&
-          Number(item.price) > 0
-      )
-      .map((item, index) => {
-        const qty = Number(item.hours) || 0;
-        const rate = Number(item.price) || 0;
-        const lineTotal = qty * rate;
-        return `${index + 1}. ${item.description} - ${qty} hr${
-          qty === 1 ? "" : "s"
-        } x ${formatCurrency(rate)} = ${formatCurrency(lineTotal)}`;
-      });
-    return validLines.join("\n");
-  };
+  const buildLineItemsText = useCallback(
+    (lineItems = []) => {
+      const validLines = (lineItems || [])
+        .filter(
+          (item) =>
+            item?.description?.trim() &&
+            Number(item.hours) > 0 &&
+            Number(item.price) > 0
+        )
+        .map((item, index) => {
+          const qty = Number(item.hours) || 0;
+          const rate = Number(item.price) || 0;
+          const lineTotal = qty * rate;
+          return `${index + 1}. ${item.description} - ${qty} hr${
+            qty === 1 ? "" : "s"
+          } x ${formatCurrency(rate)} = ${formatCurrency(lineTotal)}`;
+        });
+      return validLines.join("\n");
+    },
+    []
+  );
 
   const emailLineItemsText = useMemo(
     () => buildLineItemsText(itemsForEmail),
-    [itemsForEmail]
+    [itemsForEmail, buildLineItemsText]
   );
 
   const lineItemsPlainText =
@@ -969,6 +1140,16 @@ export default function InvoicePage() {
     [sortedInvoiceHistory, historySelection]
   );
 
+  useEffect(() => {
+    if (!editingInvoiceId) return;
+    const exists = invoiceHistory.some(
+      (invoice) => String(invoice.id) === editingInvoiceId
+    );
+    if (!exists) {
+      setEditingInvoiceId("");
+    }
+  }, [invoiceHistory, editingInvoiceId]);
+
   const manualPaymentInvoices = useMemo(() => {
     const filterValue = manualPaymentFilter.trim().toLowerCase();
     if (!filterValue) return unpaidInvoicesList;
@@ -993,14 +1174,19 @@ export default function InvoicePage() {
 
   const getInvoiceDueDate = (invoice) => {
     if (!invoice) return null;
+    const addDays = (date, days = 7) => {
+      const copy = new Date(date);
+      if (Number.isNaN(copy.getTime())) return null;
+      copy.setDate(copy.getDate() + days);
+      return copy;
+    };
     if (invoice.dueOption === "date" && invoice.dueDate) {
-      return new Date(invoice.dueDate);
+      const explicit = new Date(invoice.dueDate);
+      return Number.isNaN(explicit.getTime()) ? null : explicit;
     }
-    if (invoice.invoiceDate) {
-      return new Date(invoice.invoiceDate);
-    }
-    if (invoice.createdAt) {
-      return new Date(invoice.createdAt);
+    const baseStamp = invoice.invoiceDate || invoice.createdAt;
+    if (baseStamp) {
+      return addDays(baseStamp, 7);
     }
     return null;
   };
@@ -1411,6 +1597,12 @@ export default function InvoicePage() {
   }, []);
 
   useEffect(() => {
+    const syncProjectTasks = () => setProjectTasks(readProjectTasksData());
+    window.addEventListener("storage", syncProjectTasks);
+    return () => window.removeEventListener("storage", syncProjectTasks);
+  }, []);
+
+  useEffect(() => {
     if (!shareProjectId && projectsForShare.length > 0) {
       setShareProjectId(String(projectsForShare[0].id));
       return;
@@ -1510,18 +1702,7 @@ export default function InvoicePage() {
       0
     );
     const nextDueDate = unpaid
-      .map((invoice) => {
-        if (invoice.dueOption === "date" && invoice.dueDate) {
-          return new Date(invoice.dueDate);
-        }
-        if (invoice.invoiceDate) {
-          return new Date(invoice.invoiceDate);
-        }
-        if (invoice.createdAt) {
-          return new Date(invoice.createdAt);
-        }
-        return null;
-      })
+      .map((invoice) => getInvoiceDueDate(invoice))
       .filter((date) => date && !Number.isNaN(date.getTime()))
       .sort((a, b) => a.getTime() - b.getTime())[0];
 
@@ -1535,6 +1716,37 @@ export default function InvoicePage() {
           })
         : "—",
     };
+  }, [invoiceHistory]);
+
+  const averageDueGapDays = useMemo(() => {
+    const dueTimestamps = invoiceHistory
+      .map((invoice) => {
+        const date = getInvoiceDueDate(invoice);
+        return date && !Number.isNaN(date.getTime()) ? date.getTime() : null;
+      })
+      .filter((stamp) => stamp !== null)
+      .sort((a, b) => a - b);
+    if (dueTimestamps.length < 2) return null;
+    const gaps = dueTimestamps.slice(1).map((stamp, index) => {
+      const prev = dueTimestamps[index];
+      return Math.max(0, Math.round((stamp - prev) / MS_PER_DAY));
+    });
+    const avg = gaps.reduce((sum, gap) => sum + gap, 0) / gaps.length;
+    return Number(avg.toFixed(1));
+  }, [invoiceHistory]);
+
+  const lastPaidInvoice = useMemo(() => {
+    const paidInvoices = invoiceHistory.filter(
+      (invoice) => invoice.paid && (invoice.paidAt || invoice.createdAt)
+    );
+    if (paidInvoices.length === 0) return null;
+    return paidInvoices
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(b.paidAt || b.createdAt || 0) -
+          new Date(a.paidAt || a.createdAt || 0)
+      )[0];
   }, [invoiceHistory]);
 
   const recentCollectionSummary = useMemo(() => {
@@ -1587,6 +1799,85 @@ export default function InvoicePage() {
     });
   }, [appointments]);
 
+  const projectWorkloadSummary = useMemo(() => {
+    const openTasks = projectTasks.filter(
+      (task) => (task.status || "todo") !== "done"
+    );
+    const remainingHours = openTasks.reduce(
+      (sum, task) => sum + Number(task.hours || 0),
+      0
+    );
+    const nextTaskDueDate =
+      openTasks
+        .map((task) => {
+          if (!task.dueDate) return null;
+          const stamp = new Date(task.dueDate);
+          return Number.isNaN(stamp.getTime()) ? null : stamp;
+        })
+        .filter(Boolean)
+        .sort((a, b) => a - b)[0] || null;
+    const activeProjects = new Set(
+      openTasks
+        .map((task) => task.projectId)
+        .filter((id) => id !== undefined && id !== null)
+    );
+    return {
+      remainingHours,
+      activeProjectCount: activeProjects.size,
+      nextTaskDueDate,
+    };
+  }, [projectTasks]);
+
+  const weeklyHoursNumber = Math.max(0, Number(weeklyProjectHours) || 0);
+
+  const projectedInvoiceDate = useMemo(() => {
+    if (!projectWorkloadSummary.remainingHours || !weeklyHoursNumber) {
+      return null;
+    }
+    const anchorDate =
+      (lastPaidInvoice && (lastPaidInvoice.paidAt || lastPaidInvoice.createdAt)) ||
+      null;
+    const base = anchorDate ? new Date(anchorDate) : new Date();
+    if (Number.isNaN(base.getTime())) return null;
+    const weeksNeeded =
+      projectWorkloadSummary.remainingHours / weeklyHoursNumber;
+    const daysNeeded = Math.max(1, Math.ceil(weeksNeeded * 7));
+    const projected = new Date(base);
+    projected.setDate(projected.getDate() + daysNeeded);
+    return projected;
+  }, [projectWorkloadSummary.remainingHours, weeklyHoursNumber, lastPaidInvoice]);
+
+  const lastPaidDateLabel = useMemo(() => {
+    if (!lastPaidInvoice) return "No paid invoices yet";
+    const stamp = lastPaidInvoice.paidAt || lastPaidInvoice.createdAt;
+    if (!stamp) return "No paid invoices yet";
+    const parsed = new Date(stamp);
+    if (Number.isNaN(parsed.getTime())) return "No paid invoices yet";
+    return parsed.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }, [lastPaidInvoice]);
+
+  const projectedInvoiceDateLabel = useMemo(() => {
+    if (!projectedInvoiceDate) return "";
+    return projectedInvoiceDate.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }, [projectedInvoiceDate]);
+
+  const nextTaskDueLabel = useMemo(() => {
+    const next = projectWorkloadSummary.nextTaskDueDate;
+    if (!next) return "";
+    return next.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }, [projectWorkloadSummary.nextTaskDueDate]);
+
   const contractQueue = useMemo(
     () =>
       contracts.slice().sort((a, b) => {
@@ -1618,25 +1909,65 @@ export default function InvoicePage() {
     });
   }, [proposals]);
 
-  const displayDueDate =
-    dueOption === "date" && dueDate
-      ? new Date(dueDate).toLocaleDateString(undefined, {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        })
-      : "Upon receipt";
+  const currentInvoiceDueDate = useMemo(() => {
+    const builderInvoice = {
+      dueOption,
+      dueDate,
+      invoiceDate,
+      createdAt: invoiceDate,
+    };
+    return getInvoiceDueDate(builderInvoice);
+  }, [dueOption, dueDate, invoiceDate]);
+
+  const displayDueDate = currentInvoiceDueDate
+    ? currentInvoiceDueDate.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "Set invoice date";
 
   const previewDueDate = displayDueDate;
 
-  const emailDueDateDisplay =
-    resolvedDueOption === "date" && resolvedDueDate
-      ? new Date(resolvedDueDate).toLocaleDateString(undefined, {
+  const nextDueReminder = useMemo(() => {
+    if (currentInvoiceDueDate) {
+      return {
+        label: currentInvoiceDueDate.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        }),
+        source: "Current invoice due date",
+      };
+    }
+    if (outstandingSummary.nextDueLabel && outstandingSummary.nextDueLabel !== "—") {
+      return {
+        label: outstandingSummary.nextDueLabel,
+        source: "Soonest outstanding due date",
+      };
+    }
+    return {
+      label: "No due date set",
+      source: "Add a due date to this invoice",
+    };
+  }, [currentInvoiceDueDate, outstandingSummary.nextDueLabel]);
+
+  const emailDueDateDisplay = (() => {
+    const targetInvoice = selectedInvoiceEntry || {
+      dueOption: resolvedDueOption,
+      dueDate: resolvedDueDate,
+      invoiceDate,
+      createdAt: invoiceDate,
+    };
+    const resolvedDue = getInvoiceDueDate(targetInvoice);
+    return resolvedDue
+      ? resolvedDue.toLocaleDateString(undefined, {
           month: "short",
           day: "numeric",
           year: "numeric",
         })
       : "Upon receipt";
+  })();
 
   const previewLineItems = (items || []).filter(
     (item) => item.description.trim() && Number(item.hours) > 0
@@ -1757,11 +2088,93 @@ export default function InvoicePage() {
     );
     setDueOption(invoice.dueOption || "receipt");
     setDueDate(invoice.dueDate || "");
+    setEditingInvoiceId(String(invoice.id || ""));
     showToast(
       "success",
       "Invoice loaded",
       `${invoice.invoiceNumber} is now ready to edit.`
     );
+  };
+
+  const handleUpdateLoadedInvoice = async () => {
+    if (!selectedHistoryInvoice) {
+      showToast(
+        "warning",
+        "Select an invoice",
+        "Choose an invoice from history, then load it before updating."
+      );
+      return;
+    }
+    if (
+      !editingInvoiceId ||
+      editingInvoiceId !== String(selectedHistoryInvoice.id)
+    ) {
+      showToast(
+        "warning",
+        "Load invoice to edit",
+        "Use Load & edit so the builder is tied to the selected invoice."
+      );
+      return;
+    }
+    if (!isInvoiceValid) {
+      showToast(
+        "warning",
+        "Incomplete invoice",
+        "Fill out the invoice fields before saving changes."
+      );
+      return;
+    }
+
+    const trimmedBillToEmail =
+      getTrimmedValue(billToEmail) || "No email provided";
+    const trimmedRecipient =
+      getTrimmedValue(recipientEmail) || trimmedBillToEmail;
+    const updatedInvoice = {
+      ...selectedHistoryInvoice,
+      invoiceNumber: invoiceNumber || selectedHistoryInvoice.invoiceNumber,
+      billFromName,
+      billFromDetails,
+      billToName: billToName || "Unnamed Client",
+      billToDetails,
+      billToEmail: trimmedBillToEmail,
+      recipientEmail: trimmedRecipient,
+      items: cloneLineItems(items),
+      taxRate: Number(taxRate) || 0,
+      subtotal,
+      taxAmount,
+      total,
+      dueOption,
+      dueDate,
+      invoiceDate,
+      emailSubject,
+      emailMessage,
+    };
+
+    setIsHistoryUpdatePending(true);
+    try {
+      const saved = await saveInvoiceRecord(serializeInvoice(updatedInvoice));
+      const normalized = deserializeInvoice(saved);
+      setInvoiceHistory((prev) =>
+        prev.map((entry) =>
+          entry.id === normalized.id ? normalized : entry
+        )
+      );
+      setEditingInvoiceId(String(normalized.id));
+      showToast(
+        "success",
+        "Invoice updated",
+        `${normalized.invoiceNumber} changes saved.`
+      );
+    } catch (error) {
+      console.error("Unable to update invoice", error);
+      showToast(
+        "warning",
+        "Update failed",
+        error.message || "Check your Supabase connection and try again."
+      );
+    } finally {
+      setIsHistoryUpdatePending(false);
+    }
   };
 
   const handleMarkPaidSelectedInvoice = () => {
@@ -1805,6 +2218,7 @@ export default function InvoicePage() {
     setSelectedInvoiceId("");
     setSelectedClientKey("");
     setInvoiceDate(new Date().toISOString().split("T")[0]);
+    setEditingInvoiceId("");
   };
 
   const handleClearInvoiceBuilder = () => {
@@ -2150,6 +2564,124 @@ export default function InvoicePage() {
     );
   };
 
+  const handleUpdateInvoiceDueDate = async (invoiceId, newDate) => {
+    const isoDate = toIsoFromInputDate(newDate);
+    const clearing = !newDate;
+    if (!isoDate && !clearing) {
+      showToast("warning", "Add due date", "Select a valid due date.");
+      return false;
+    }
+    const target = invoiceHistory.find(
+      (invoice) => String(invoice.id) === String(invoiceId)
+    );
+    if (!target) {
+      showToast(
+        "warning",
+        "Invoice not found",
+        "Choose a valid invoice before updating the due date."
+      );
+      return false;
+    }
+    const optimistic = {
+      ...target,
+      dueDate: isoDate || "",
+      dueOption: isoDate ? "date" : "receipt",
+    };
+    persistInvoiceHistory((prev) =>
+      prev.map((invoice) =>
+        String(invoice.id) === String(invoiceId) ? optimistic : invoice
+      )
+    );
+    try {
+      if (optimistic.id) {
+        const saved = await saveInvoiceRecord(serializeInvoice(optimistic));
+        const normalized = deserializeInvoice(saved);
+        persistInvoiceHistory((prev) =>
+          prev.map((invoice) =>
+            invoice.id === normalized.id ? normalized : invoice
+          )
+        );
+      }
+      showToast(
+        "success",
+        "Due date updated",
+        isoDate
+          ? `${optimistic.invoiceNumber || "Invoice"} now due ${new Date(
+              isoDate
+            ).toLocaleDateString()}`
+          : `${optimistic.invoiceNumber || "Invoice"} due cleared (upon receipt)`
+      );
+      return true;
+    } catch (error) {
+      console.error("Unable to save due date", error);
+      showToast(
+        "warning",
+        "Save failed",
+        "Check your connection and try again."
+      );
+      return false;
+    }
+  };
+
+  const handleUpdateInvoicePaidDate = async (invoiceId, newDate) => {
+    const isoDate = newDate
+      ? toIsoFromInputDate(newDate)
+      : new Date().toISOString();
+    if (!isoDate) {
+      showToast("warning", "Add paid date", "Select a valid paid date.");
+      return false;
+    }
+    const target = invoiceHistory.find(
+      (invoice) => String(invoice.id) === String(invoiceId)
+    );
+    if (!target) {
+      showToast(
+        "warning",
+        "Invoice not found",
+        "Choose a valid invoice before updating the paid date."
+      );
+      return false;
+    }
+    const optimistic = {
+      ...target,
+      paidAt: isoDate,
+      paid: true,
+      status: "paid",
+    };
+    persistInvoiceHistory((prev) =>
+      prev.map((invoice) =>
+        String(invoice.id) === String(invoiceId) ? optimistic : invoice
+      )
+    );
+    try {
+      if (optimistic.id) {
+        const saved = await saveInvoiceRecord(serializeInvoice(optimistic));
+        const normalized = deserializeInvoice(saved);
+        persistInvoiceHistory((prev) =>
+          prev.map((invoice) =>
+            invoice.id === normalized.id ? normalized : invoice
+          )
+        );
+      }
+      showToast(
+        "success",
+        "Paid date updated",
+        `${optimistic.invoiceNumber || "Invoice"} marked paid on ${new Date(
+          isoDate
+        ).toLocaleDateString()}`
+      );
+      return true;
+    } catch (error) {
+      console.error("Unable to save paid date", error);
+      showToast(
+        "warning",
+        "Save failed",
+        "Check your connection and try again."
+      );
+      return false;
+    }
+  };
+
   const handleContractFileChange = (event) => {
     const file = event.target.files && event.target.files[0];
     setContractForm((prev) => ({
@@ -2413,18 +2945,14 @@ export default function InvoicePage() {
     }
   };
 
-  const handleFinalizeInvoice = async ({ shouldPrint = true } = {}) => {
-    if (!isInvoiceValid) {
-      showToast(
-        "warning",
+const handleFinalizeInvoice = async ({ shouldPrint = false } = {}) => {
+  if (!isInvoiceValid) {
+    showToast(
+      "warning",
         "Complete invoice details",
         "Fill out business info, client info, and at least one line item with hours and rate before printing."
       );
       return;
-    }
-
-    if (shouldPrint) {
-      window.print();
     }
 
     const createdAt = new Date().toISOString();
@@ -2492,13 +3020,291 @@ export default function InvoicePage() {
 
     showToast(
       "success",
-      shouldPrint ? "Invoice printed" : "Invoice saved",
-      shouldPrint
-        ? "Use your browser's print dialog to save or share the PDF."
-        : "Invoice stored. Use Print → Save as PDF whenever you're ready to export."
+      "Invoice saved",
+      "Invoice stored. Use Print → Save as PDF whenever you're ready to export."
     );
 
     resetInvoiceDetails();
+  };
+
+  const printableInvoiceMarkup = useCallback(() => {
+    if (!printPreviewRef.current) return null;
+    const printStyles = `
+      @page { size: A4; margin: 10mm; }
+      :root { color-scheme: dark; }
+      body {
+        margin: 0;
+        font-family: "Space Grotesk", "Inter", "Segoe UI", system-ui, sans-serif;
+        background: linear-gradient(135deg, #05060a 0%, #0d0f17 50%, #1c1f2a 100%);
+        color: #f8fafc;
+        line-height: 1.5;
+        font-size: 0.92rem;
+      }
+      .page-background {
+        min-height: 100vh;
+        padding: 12px 8px;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+      .invoice-preview {
+        width: min(880px, 100%);
+        margin: 0 auto;
+        padding: 26px 26px 22px;
+        background: rgba(8, 8, 8, 0.9);
+        border-radius: 20px;
+        border: 1px solid rgba(248, 250, 252, 0.08);
+        position: relative;
+      }
+      .invoice-brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 14px;
+      }
+      .invoice-brand__logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 10px;
+        flex-shrink: 0;
+        margin-right: 2px;
+      }
+      .invoice-brand__text {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-left: 4px;
+      }
+      .invoice-heading {
+        position: absolute;
+        top: -18px;
+        right: 24px;
+        background: rgba(239, 68, 68, 0.2);
+        border-radius: 999px;
+        padding: 5px 14px;
+        font-size: 0.7rem;
+        letter-spacing: 0.18em;
+        color: #fee2e2;
+      }
+      .invoice-preview__header {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .invoice-preview__header > div {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .invoice-preview__header strong {
+        font-size: 0.98rem;
+        letter-spacing: 0.01em;
+      }
+      .invoice-preview__header span {
+        color: rgba(248, 250, 252, 0.65);
+        font-size: 0.85rem;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+        letter-spacing: 0.01em;
+      }
+      thead th {
+        text-transform: uppercase;
+        font-size: 0.72rem;
+        letter-spacing: 0.18em;
+        padding: 10px 8px;
+        color: rgba(248, 250, 252, 0.7);
+        border-bottom: 1px solid rgba(248, 113, 113, 0.4);
+        background: rgba(239, 68, 68, 0.12);
+      }
+      tbody td {
+        padding: 10px 8px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        color: #f1f5f9;
+      }
+      tbody tr:nth-child(even) {
+        background: rgba(248, 113, 113, 0.06);
+      }
+      tbody td strong {
+        font-weight: 600;
+        color: #facc15;
+      }
+      .invoice-preview__totals {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 12px;
+        margin-top: 16px;
+        font-size: 0.95rem;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 12px 14px;
+        border-radius: 12px;
+      }
+      .invoice-preview__totals div {
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        padding-right: 10px;
+        min-height: 38px;
+      }
+      .invoice-preview__totals div:last-child {
+        border-right: none;
+      }
+      .invoice-preview__totals strong {
+        font-size: 1.05rem;
+        color: #f97316;
+      }
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        background: rgba(239, 68, 68, 0.2);
+        border: 1px solid rgba(239, 68, 68, 0.4);
+      }
+      @media (max-width: 720px) {
+        body {
+          font-size: 0.88rem;
+        }
+        .invoice-preview {
+          padding: 20px 16px;
+          border-radius: 14px;
+        }
+        .invoice-preview__header {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        thead th,
+        tbody td {
+          font-size: 0.82rem;
+          padding: 8px 6px;
+        }
+      }
+    `;
+    return `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Invoice ${invoiceNumber}</title>
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <style>${printStyles}</style>
+        </head>
+        <body>
+          <div class="page-background">
+            <div class="invoice-preview">
+              <span class="invoice-heading">Invoice ${invoiceNumber}</span>
+              ${printPreviewRef.current.innerHTML}
+            </div>
+          </div>
+        </body>
+      </html>
+    `;
+  }, [invoiceNumber]);
+
+  const printInvoicePreview = useCallback(
+    (targetWindow) => {
+      const markup = printableInvoiceMarkup();
+      if (!markup) {
+        showToast(
+          "warning",
+          "Print preview missing",
+          "Invoice preview is not ready yet."
+        );
+        if (targetWindow) {
+          targetWindow.close();
+        }
+        return;
+      }
+      const printWindow = targetWindow || window.open("", "_blank");
+      if (!printWindow) {
+        showToast(
+          "warning",
+          "Popup blocked",
+          "Allow popups so the invoice can be printed."
+        );
+        return;
+      }
+      printWindow.document.open();
+      printWindow.document.write(markup);
+      printWindow.document.close();
+      printWindow.focus();
+      printWindow.print();
+      printWindow.close();
+    },
+    [printableInvoiceMarkup]
+  );
+
+  const handlePrintInvoice = async () => {
+    if (!isInvoiceValid) {
+      showToast(
+        "warning",
+        "Complete invoice details",
+        "Fill out business info, client info, and at least one line item with hours and rate before printing."
+      );
+      return;
+    }
+    if (typeof window === "undefined") return;
+    const printWindow = window.open("", "_blank", "width=900,height=900");
+    if (!printWindow) {
+      showToast(
+        "warning",
+        "Popup blocked",
+        "Allow popups so the invoice can be printed."
+      );
+      return;
+    }
+    printWindow.document.write(
+      `<html><head><title>Preparing invoice</title></head><body><p style="font-family: 'Inter', 'Segoe UI', sans-serif; padding: 32px;">Preparing printable preview…</p></body></html>`
+    );
+    printWindow.document.close();
+    try {
+      await handleFinalizeInvoice({ shouldPrint: false });
+      printInvoicePreview(printWindow);
+    } catch (error) {
+      console.error("Unable to print invoice", error);
+      printWindow.close();
+      showToast(
+        "warning",
+        "Print failed",
+        "Try again or save the invoice, then use the export button."
+      );
+    }
+  };
+
+  const handleInvoiceActionWithReminder = (actionFn, label) => {
+    if (!actionFn) return;
+    setPendingInvoiceAction(() => actionFn);
+    setPendingActionLabel(label || "invoice action");
+    setShowDueReminderModal(true);
+  };
+
+  const dismissDueReminderModal = () => {
+    setShowDueReminderModal(false);
+    setPendingInvoiceAction(null);
+    setPendingActionLabel("");
+  };
+
+  const runPendingInvoiceAction = async () => {
+    const action = pendingInvoiceAction;
+    setShowDueReminderModal(false);
+    try {
+      if (typeof action === "function") {
+        await action();
+      }
+    } catch (error) {
+      console.error("Invoice action failed", error);
+      showToast(
+        "warning",
+        "Action failed",
+        "Unable to complete the requested invoice action."
+      );
+    } finally {
+      setPendingInvoiceAction(null);
+      setPendingActionLabel("");
+    }
   };
 
   const handleResetInvoiceNumber = () => {
@@ -2516,6 +3322,152 @@ export default function InvoicePage() {
       `Next invoice starts at ${BASE_INVOICE_NUMBER}.`
     );
   };
+
+  const workflowSteps = [
+    { key: "details", label: "Details", targetId: "invoice-build" },
+    { key: "items", label: "Line items", targetId: "line-items" },
+    { key: "review", label: "Review", targetId: "export-email" },
+    { key: "send", label: "Send", targetId: "email-workflow" },
+  ];
+
+  const scrollToSection = useCallback((targetId) => {
+    if (typeof window === "undefined") return;
+    const section = document.getElementById(targetId);
+    if (!section) return;
+    section.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  const handleStepSelect = useCallback(
+    (step) => {
+      setActiveStep(step.key);
+      scrollToSection(step.targetId);
+    },
+    [scrollToSection]
+  );
+
+  const missingFields = useMemo(() => {
+    const missing = [];
+    if (!invoiceNumber.trim()) missing.push("invoice number");
+    if (!billFromName.trim()) missing.push("business name");
+    if (!billFromDetails.trim()) missing.push("business address");
+    if (!billToName.trim()) missing.push("client name");
+    if (!billToDetails.trim()) missing.push("client address");
+    const hasLineItem = items.some(
+      (item) =>
+        item.description.trim() &&
+        Number(item.hours) > 0 &&
+        Number(item.price) > 0
+    );
+    if (!hasLineItem) missing.push("line item with hours and rate");
+    return missing;
+  }, [
+    invoiceNumber,
+    billFromName,
+    billFromDetails,
+    billToName,
+    billToDetails,
+    items,
+  ]);
+
+  const commandActions = useMemo(
+    () => [
+      {
+        title: "Jump to invoice details",
+        description: "Business and client information",
+        shortcut: "1",
+        onRun: () => handleStepSelect(workflowSteps[0]),
+        keywords: ["details", "client", "business"],
+      },
+      {
+        title: "Jump to line items",
+        description: "Add services and rates",
+        shortcut: "2",
+        onRun: () => handleStepSelect(workflowSteps[1]),
+        keywords: ["items", "hours", "rate"],
+      },
+      {
+        title: "Jump to review and export",
+        description: "Preview the PDF-ready invoice",
+        shortcut: "3",
+        onRun: () => handleStepSelect(workflowSteps[2]),
+        keywords: ["preview", "print", "export"],
+      },
+      {
+        title: "Jump to send email",
+        description: "Deliver to your client",
+        shortcut: "4",
+        onRun: () => handleStepSelect(workflowSteps[3]),
+        keywords: ["send", "email"],
+      },
+      {
+        title: "Add line item",
+        description: "Append a new service row",
+        shortcut: "A",
+        onRun: handleAddLineItemShortcut,
+        keywords: ["add", "item"],
+      },
+      {
+        title: "Save client profile",
+        description: "Store current client details",
+        shortcut: "S",
+        onRun: handleSaveClientShortcut,
+        keywords: ["save", "client"],
+      },
+      {
+        title: "Print invoice",
+        description: "Open print preview for PDF export",
+        shortcut: "P",
+        onRun: () =>
+          handleInvoiceActionWithReminder(handlePrintInvoice, "Print invoice"),
+        disabled: !isInvoiceValid,
+        keywords: ["print", "pdf"],
+      },
+      {
+        title: "Save invoice PDF",
+        description: "Archive the invoice in Supabase",
+        shortcut: "Shift+S",
+        onRun: () =>
+          handleInvoiceActionWithReminder(
+            () => handleFinalizeInvoice({ shouldPrint: false }),
+            "Save invoice PDF"
+          ),
+        disabled: !isInvoiceValid,
+        keywords: ["save", "archive"],
+      },
+      {
+        title: "Send invoice email",
+        description: "Deliver the invoice to the client",
+        shortcut: "E",
+        onRun: () =>
+          handleInvoiceActionWithReminder(
+            handleSendInvoiceEmail,
+            "Send invoice email"
+          ),
+        disabled: isEmailSending,
+        keywords: ["send", "email"],
+      },
+      {
+        title: "Clear invoice",
+        description: "Start a fresh invoice draft",
+        shortcut: "C",
+        onRun: handleClearInvoiceBuilder,
+        keywords: ["reset", "clear"],
+      },
+    ],
+    [
+      handleAddLineItemShortcut,
+      handleClearInvoiceBuilder,
+      handleFinalizeInvoice,
+      handleInvoiceActionWithReminder,
+      handlePrintInvoice,
+      handleSaveClientShortcut,
+      handleSendInvoiceEmail,
+      handleStepSelect,
+      isEmailSending,
+      isInvoiceValid,
+      workflowSteps,
+    ]
+  );
 
   return (
     <>
@@ -2538,45 +3490,72 @@ export default function InvoicePage() {
                 )}
               </div>
               <div className="hero-stats">
-                <div className="hero-stat">
-                  <p className="muted small">Open receivables</p>
-                  <strong>{formatCurrency(outstandingSummary.total)}</strong>
-                  <span>
-                    {outstandingSummary.count || 0} open invoice
-                    {outstandingSummary.count === 1 ? "" : "s"}
-                  </span>
-                  <p className="hero-stat__meta">
-                    Next due {outstandingSummary.nextDueLabel}
-                  </p>
-                </div>
-                <div className="hero-stat">
-                  <p className="muted small">Collected (30 days)</p>
-                  <strong>
-                    {formatCurrency(recentCollectionSummary.total)}
-                  </strong>
-                  <span>
-                    {recentCollectionSummary.count || 0} payment
-                    {recentCollectionSummary.count === 1 ? "" : "s"}
-                  </span>
-                  <p className="hero-stat__meta">
-                    {paymentHistory.totals.count} lifetime payments
-                  </p>
-                </div>
-                <div className="hero-stat">
-                  <p className="muted small">Retainers & projects</p>
-                  <strong>{formatCurrency(retainerBalance)}</strong>
-                  <span>
-                    {advancePayments.length || 0} active retainer
-                    {advancePayments.length === 1 ? "" : "s"}
-                  </span>
-                  <p className="hero-stat__meta">
-                    {projectsForShare.length
-                      ? `${projectsForShare.length} shared project${
-                          projectsForShare.length === 1 ? "" : "s"
-                        }`
-                      : "Add a project from Quotes or Projects"}
-                  </p>
-                </div>
+                {isDataLoading ? (
+                  Array.from({ length: 4 }).map((_, index) => (
+                    <div key={`stat-skeleton-${index}`} className="hero-stat">
+                      <div className="skeleton-line skeleton-line--sm" />
+                      <div className="skeleton-line skeleton-line--lg" />
+                      <div className="skeleton-line" />
+                      <div className="skeleton-line skeleton-line--xs" />
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div className="hero-stat">
+                      <p className="muted small">Open receivables</p>
+                      <strong>
+                        {formatCurrency(outstandingSummary.total)}
+                      </strong>
+                      <span>
+                        {outstandingSummary.count || 0} open invoice
+                        {outstandingSummary.count === 1 ? "" : "s"}
+                      </span>
+                      <p className="hero-stat__meta">
+                        Next due {outstandingSummary.nextDueLabel}
+                      </p>
+                    </div>
+                    <div className="hero-stat">
+                      <p className="muted small">Collected (30 days)</p>
+                      <strong>
+                        {formatCurrency(recentCollectionSummary.total)}
+                      </strong>
+                      <span>
+                        {recentCollectionSummary.count || 0} payment
+                        {recentCollectionSummary.count === 1 ? "" : "s"}
+                      </span>
+                      <p className="hero-stat__meta">
+                        {paymentHistory.totals.count} lifetime payments
+                      </p>
+                    </div>
+                    <div className="hero-stat">
+                      <p className="muted small">Retainers & projects</p>
+                      <strong>{formatCurrency(retainerBalance)}</strong>
+                      <span>
+                        {advancePayments.length || 0} active retainer
+                        {advancePayments.length === 1 ? "" : "s"}
+                      </span>
+                      <p className="hero-stat__meta">
+                        {projectsForShare.length
+                          ? `${projectsForShare.length} shared project${
+                              projectsForShare.length === 1 ? "" : "s"
+                            }`
+                          : "Add a project from Quotes or Projects"}
+                      </p>
+                    </div>
+                    <div className="hero-stat">
+                      <p className="muted small">Due date cadence</p>
+                      <strong>
+                        {averageDueGapDays
+                          ? `${averageDueGapDays}d`
+                          : "Need more data"}
+                      </strong>
+                      <span>Avg. gap between invoice due dates</span>
+                      <p className="hero-stat__meta">
+                        Next due {nextDueReminder.label}
+                      </p>
+                    </div>
+                  </>
+                )}
               </div>
             </header>
 
@@ -2601,6 +3580,44 @@ export default function InvoicePage() {
               id="invoice-build"
               className="workspace-grid invoice-workgrid"
             >
+              <div className="card builder-stepper card--full">
+                <div className="builder-stepper__header">
+                  <div>
+                    <p className="eyebrow">Invoice flow</p>
+                    <h2 className="card-title">Build, review, and deliver</h2>
+                    <p className="muted small">
+                      Follow the guided steps or jump ahead when you are ready.
+                    </p>
+                  </div>
+                  <div className="builder-stepper__actions">
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-small"
+                      onClick={() => setIsCommandOpen(true)}
+                    >
+                      Open command palette
+                    </button>
+                    <span className="muted small">Tip: Cmd+K / Ctrl+K</span>
+                  </div>
+                </div>
+                <div className="builder-stepper__track">
+                  {workflowSteps.map((step, index) => (
+                    <button
+                      key={step.key}
+                      type="button"
+                      className={`builder-step${
+                        activeStep === step.key ? " is-active" : ""
+                      }`}
+                      onClick={() => handleStepSelect(step)}
+                    >
+                      <span className="builder-step__index">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <span className="builder-step__label">{step.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
               <div className="workspace-main invoice-workgrid__primary">
                 <div className="command-center-grid">
                   <div className="card quick-actions-card">
@@ -2643,9 +3660,11 @@ export default function InvoicePage() {
                         className="input control"
                         value={historySelection}
                         onChange={(e) => setHistorySelection(e.target.value)}
-                        disabled={sortedInvoiceHistory.length === 0}
+                        disabled={isDataLoading || sortedInvoiceHistory.length === 0}
                       >
-                        {sortedInvoiceHistory.length === 0 ? (
+                        {isDataLoading ? (
+                          <option value="">Loading invoices...</option>
+                        ) : sortedInvoiceHistory.length === 0 ? (
                           <option value="">No stored invoices</option>
                         ) : (
                           sortedInvoiceHistory.map((invoice) => (
@@ -2668,6 +3687,20 @@ export default function InvoicePage() {
                         disabled={!selectedHistoryInvoice}
                       >
                         Load & edit
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        onClick={handleUpdateLoadedInvoice}
+                        disabled={
+                          !selectedHistoryInvoice ||
+                          editingInvoiceId !==
+                            String(selectedHistoryInvoice.id) ||
+                          !isInvoiceValid ||
+                          isHistoryUpdatePending
+                        }
+                      >
+                        {isHistoryUpdatePending ? "Updating…" : "Update & save"}
                       </button>
                       <button
                         type="button"
@@ -2723,7 +3756,7 @@ export default function InvoicePage() {
                     onSelectClient={handleSelectSavedClient}
                     onAddClient={handleAddClientToSaved}
                   />
-                  <div className="line-items-card">
+                  <div id="line-items" className="line-items-card">
                     <div className="line-items-card__header">
                       <h3>Line items</h3>
                       <span className="muted small">
@@ -2747,10 +3780,22 @@ export default function InvoicePage() {
                     Print &rarr; Save as PDF dialog to archive or share.
                   </p>
                   <div
-                    className="invoice-preview"
+                    ref={printPreviewRef}
+                    className="invoice-preview invoice-print"
                     aria-label="Invoice print preview"
                   >
-                    <div className="invoice-preview__header">
+                    <div className="invoice-brand">
+                      <img
+                        src="/tritech-logo.svg"
+                        alt="Tri-Tech Invoice"
+                        className="invoice-brand__logo"
+                      />
+                      <div className="invoice-brand__text">
+                        <strong>Tri-Tech Invoice</strong>
+                        <span className="muted small">Developer-first billing</span>
+                      </div>
+                    </div>
+                    <div className="invoice-preview__header invoice-print__header">
                       <div>
                         <p className="muted small">From</p>
                         <strong>{billFromName || "Business"}</strong>
@@ -2777,7 +3822,7 @@ export default function InvoicePage() {
                       </div>
                     </div>
 
-                    <table className="invoice-preview__table">
+                    <table className="invoice-preview__table invoice-print__table">
                       <thead>
                         <tr>
                           <th>Description</th>
@@ -2811,7 +3856,7 @@ export default function InvoicePage() {
                       </tbody>
                     </table>
 
-                    <div className="invoice-preview__totals">
+                    <div className="invoice-preview__totals invoice-print__totals">
                       <div>
                         <span className="muted small">Subtotal</span>
                         <strong>{formatCurrency(subtotal)}</strong>
@@ -2832,7 +3877,10 @@ export default function InvoicePage() {
                       className="btn btn-primary"
                       type="button"
                       onClick={() =>
-                        handleFinalizeInvoice({ shouldPrint: true })
+                        handleInvoiceActionWithReminder(
+                          handlePrintInvoice,
+                          "Print invoice"
+                        )
                       }
                       disabled={!isInvoiceValid}
                     >
@@ -2842,7 +3890,10 @@ export default function InvoicePage() {
                       className="btn btn-ghost"
                       type="button"
                       onClick={() =>
-                        handleFinalizeInvoice({ shouldPrint: false })
+                        handleInvoiceActionWithReminder(
+                          () => handleFinalizeInvoice({ shouldPrint: false }),
+                          "Save invoice PDF"
+                        )
                       }
                       disabled={!isInvoiceValid}
                     >
@@ -2857,7 +3908,10 @@ export default function InvoicePage() {
                   )}
                 </section>
 
-                <section className="card workflow-card email-workflow">
+                <section
+                  id="email-workflow"
+                  className="card workflow-card email-workflow"
+                >
                   <p className="step-label">Inbox delivery</p>
                   <h2 className="card-title">Send the invoice email</h2>
                   <p className="muted">
@@ -2938,7 +3992,12 @@ export default function InvoicePage() {
                     <button
                       className="btn btn-primary"
                       type="button"
-                      onClick={handleSendInvoiceEmail}
+                      onClick={() =>
+                        handleInvoiceActionWithReminder(
+                          handleSendInvoiceEmail,
+                          "Send invoice email"
+                        )
+                      }
                       disabled={isEmailSending}
                     >
                       {isEmailSending ? "Sending…" : "Send Invoice Email"}
@@ -3081,6 +4140,56 @@ export default function InvoicePage() {
                       />
                     </>
                   )}
+                </section>
+
+                <section className="card project-time-card">
+                  <p className="step-label">Project time helper</p>
+                  <h2 className="card-title">Estimate next invoice</h2>
+                  <p className="muted small">
+                    Input your weekly capacity (default 20 hrs/week) and we&apos;ll project the
+                    next invoice date using execution board tasks and the last paid invoice.
+                  </p>
+                  <label>
+                    <span className="muted small">Weekly hours</span>
+                    <input
+                      className="input control"
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={weeklyProjectHours}
+                      onChange={(e) => setWeeklyProjectHours(e.target.value)}
+                    />
+                  </label>
+                  <div className="project-time-stats">
+                    <div>
+                      <p className="muted small">Open task hours</p>
+                      <strong>{projectWorkloadSummary.remainingHours.toFixed(1)} hrs</strong>
+                      <span className="muted tiny">
+                        {projectWorkloadSummary.activeProjectCount || 0} active project
+                        {projectWorkloadSummary.activeProjectCount === 1 ? "" : "s"}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="muted small">Last paid invoice</p>
+                      <strong>{lastPaidDateLabel}</strong>
+                      <span className="muted tiny">
+                        {nextTaskDueLabel
+                          ? `Next task due ${nextTaskDueLabel}`
+                          : "Add due dates to tasks for better accuracy"}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="muted small">Projected next invoice</p>
+                      <strong>
+                        {projectedInvoiceDateLabel || "Add hours to estimate"}
+                      </strong>
+                      <span className="muted tiny">
+                        {weeklyHoursNumber
+                          ? `Assuming ${weeklyHoursNumber} hrs/week`
+                          : "Set weekly hours to calculate"}
+                      </span>
+                    </div>
+                  </div>
                 </section>
 
                 <QuoteReference />
@@ -4474,7 +5583,10 @@ export default function InvoicePage() {
               <div className="card history-card">
                 <h2 className="card-title">Invoices by Month</h2>
                 {monthlyHistory.length === 0 ? (
-                  <p className="muted">No invoices recorded yet.</p>
+                  <p className="muted">
+                    No invoices recorded yet. Save or send your first invoice
+                    to start tracking trends.
+                  </p>
                 ) : (
                   monthlyHistory.map((group) => (
                     <div className="history-group" key={group.key}>
@@ -4536,62 +5648,255 @@ export default function InvoicePage() {
                     No clients yet. Send your first invoice!
                   </p>
                 ) : (
-                  clientHistory.map((client) => (
-                    <div className="history-group" key={client.name}>
-                      <div className="history-group__header">
-                        <strong>{client.name}</strong>
-                        <span>{client.invoices.length} invoice(s)</span>
-                      </div>
-                      <ul className="history-list">
-                        {client.invoices.map((invoice) => (
-                          <li key={`${client.name}-${invoice.id}`}>
-                            <div>
-                              <p className="history-list__title">
-                                {invoice.invoiceNumber}
-                              </p>
-                              <p className="history-list__meta">
-                                Client email:{" "}
-                                {invoice.billToEmail || "Not provided"}
-                              </p>
-                              {invoice.recipientEmail && (
+                  (() => {
+                    let remaining = billTrackerVisibleCount;
+                    const limitedClients = [];
+                    for (const client of clientHistory) {
+                      if (remaining <= 0) break;
+                      const limitedInvoices = client.invoices.slice(
+                        0,
+                        Math.max(0, remaining)
+                      );
+                      if (limitedInvoices.length > 0) {
+                        remaining -= limitedInvoices.length;
+                        limitedClients.push({
+                          ...client,
+                          invoices: limitedInvoices,
+                        });
+                      }
+                    }
+                    return limitedClients.map((client) => (
+                      <div className="history-group" key={client.name}>
+                        <div className="history-group__header">
+                          <strong>{client.name}</strong>
+                          <span>{client.invoices.length} invoice(s)</span>
+                        </div>
+                        <ul className="history-list bill-tracker-list">
+                          {client.invoices.map((invoice) => {
+                            const baseDueDate = (() => {
+                              if (invoice.dueOption === "date" && invoice.dueDate) {
+                                return parseDateSafe(invoice.dueDate);
+                              }
+                              if (invoice.invoiceDate) return parseDateSafe(invoice.invoiceDate);
+                            if (invoice.createdAt) return parseDateSafe(invoice.createdAt);
+                            return null;
+                          })();
+                          const dueLabel = baseDueDate
+                            ? baseDueDate.toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })
+                            : "No due date";
+                          const daysPastDue =
+                            !invoice.paid && baseDueDate
+                              ? Math.max(
+                                  0,
+                                  Math.round(
+                                    (Date.now() - baseDueDate.getTime()) /
+                                      MS_PER_DAY
+                                  )
+                                )
+                              : 0;
+                          const isOver7DaysUnpaid =
+                            !invoice.paid && daysPastDue > 7;
+                          const paidDateObj = parseDateSafe(invoice.paidAt);
+                          const paidDateLabel = paidDateObj
+                            ? paidDateObj.toLocaleDateString()
+                            : "Unpaid";
+                          const daysSincePaid =
+                            paidDateObj && invoice.paid
+                              ? Math.max(
+                                  0,
+                                  Math.round(
+                                    (Date.now() - paidDateObj.getTime()) /
+                                      MS_PER_DAY
+                                  )
+                                )
+                              : null;
+                          const gapDays = clientInvoiceGapMap.get(invoice.id);
+                          const latePaymentDays =
+                            typeof gapDays === "number" && gapDays > 7
+                              ? gapDays - 7
+                              : null;
+                          const dueInputValue = toInputDate(
+                            invoice.dueDate ||
+                              invoice.invoiceDate ||
+                              invoice.createdAt
+                          );
+                          const paidInputValue = toInputDate(invoice.paidAt);
+                          const createdLabel = invoice.invoiceDate
+                            ? formatDate(invoice.invoiceDate)
+                            : invoice.createdAt
+                            ? formatDate(invoice.createdAt)
+                            : "—";
+
+                            return (
+                            <li key={`${client.name}-${invoice.id}`} className="bill-tracker-item">
+                              <div className="bill-tracker-primary">
+                                <div className="bill-tracker-header">
+                                  <p className="history-list__title">
+                                    {invoice.invoiceNumber}
+                                  </p>
+                                  <div className="bill-tracker-tags">
+                                    <span className="bill-tracker-pill">
+                                      {formatCurrency(invoice.total)}
+                                    </span>
+                                    <span
+                                      className={`bill-tracker-pill ${
+                                        invoice.paid ? "pill-success" : "pill-warning"
+                                      }`}
+                                    >
+                                      {invoice.paid ? "Paid" : "Unpaid"}
+                                    </span>
+                                    {isOver7DaysUnpaid && (
+                                      <span className="bill-tracker-pill pill-danger">
+                                        {daysPastDue}d overdue
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="bill-tracker-meta">
+                                  <span>Due</span>
+                                  <strong>{dueLabel}</strong>
+                                </div>
+                                <div className="bill-tracker-meta">
+                                  <span>Invoice created</span>
+                                  <strong>{createdLabel}</strong>
+                                </div>
+                                <div className="bill-tracker-meta">
+                                  <span>Date paid</span>
+                                  <strong>{paidDateLabel}</strong>
+                                </div>
+                                {daysSincePaid !== null && (
+                                  <p className="history-list__meta">
+                                    Last paid {daysSincePaid} day
+                                    {daysSincePaid === 1 ? "" : "s"} ago
+                                  </p>
+                                )}
                                 <p className="history-list__meta">
-                                  Delivery email: {invoice.recipientEmail}
+                                  Days since previous invoice:{" "}
+                                  {gapDays === null || gapDays === undefined
+                                    ? "—"
+                                    : `${gapDays}d`}
                                 </p>
-                              )}
-                            </div>
-                            <div className="history-actions">
-                              <span>{formatCurrency(invoice.total)}</span>
-                              {!invoice.paid && (
-                                <button
-                                  type="button"
-                                  className="history-paid"
-                                  onClick={() =>
-                                    handleQuickRecordPayment(invoice)
-                                  }
-                                >
-                                  Record payment
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                className="history-remove"
-                                onClick={() => removeHistoryEntry(invoice.id)}
-                                aria-label={`Remove ${invoice.invoiceNumber}`}
-                                disabled={!adminUnlocked}
-                                title={
-                                  adminUnlocked
-                                    ? "Remove history entry"
-                                    : "Unlock admin to remove"
-                                }
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))
+                                {latePaymentDays !== null && (
+                                  <p className="history-list__meta history-late">
+                                    Late on payment by {latePaymentDays}d
+                                  </p>
+                                )}
+                              </div>
+                              <div className="history-actions bill-tracker-actions">
+                                {!invoice.paid && (
+                                  <button
+                                    type="button"
+                                    className="history-paid"
+                                    onClick={() =>
+                                      handleQuickRecordPayment(invoice)
+                                    }
+                                  >
+                                    Record payment
+                                  </button>
+                                )}
+                                <div className="bill-tracker-forms">
+                                  <form
+                                    className="history-inline-form"
+                                    onSubmit={async (e) => {
+                                      e.preventDefault();
+                                      const formData = new FormData(e.target);
+                                      const nextDate = formData.get("due-date");
+                                      const ok = await handleUpdateInvoiceDueDate(
+                                        invoice.id,
+                                        nextDate
+                                      );
+                                      if (ok) e.target.reset();
+                                    }}
+                                  >
+                                    <label className="muted tiny">Update due</label>
+                                    <div className="history-inline-group">
+                                      <input
+                                        key={`due-${invoice.id}-${dueInputValue}`}
+                                        name="due-date"
+                                        type="date"
+                                        className="input control"
+                                        defaultValue={dueInputValue}
+                                      />
+                                      <button
+                                        type="submit"
+                                        className="btn btn-ghost btn-small"
+                                      >
+                                        Save
+                                      </button>
+                                    </div>
+                                  </form>
+                                  <form
+                                    className="history-inline-form"
+                                    onSubmit={async (e) => {
+                                      e.preventDefault();
+                                      const formData = new FormData(e.target);
+                                      const nextDate = formData.get("paid-date");
+                                      const ok = await handleUpdateInvoicePaidDate(
+                                        invoice.id,
+                                        nextDate
+                                      );
+                                      if (ok) e.target.reset();
+                                    }}
+                                  >
+                                    <label className="muted tiny">Update paid</label>
+                                    <div className="history-inline-group">
+                                      <input
+                                        key={`paid-${invoice.id}-${paidInputValue}`}
+                                        name="paid-date"
+                                        type="date"
+                                        className="input control"
+                                        defaultValue={paidInputValue}
+                                      />
+                                      <button
+                                        type="submit"
+                                        className="btn btn-ghost btn-small"
+                                      >
+                                        Save
+                                      </button>
+                                    </div>
+                                  </form>
+                                </div>
+                                <div className="bill-tracker-actions__row">
+                                  <button
+                                    type="button"
+                                    className="history-remove"
+                                    onClick={() => removeHistoryEntry(invoice.id)}
+                                    aria-label={`Remove ${invoice.invoiceNumber}`}
+                                    disabled={!adminUnlocked}
+                                    title={
+                                      adminUnlocked
+                                        ? "Remove history entry"
+                                        : "Unlock admin to remove"
+                                    }
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              </div>
+                            </li>
+                            );
+                          })}
+                        </ul>
+                      </div>
+                    ));
+                  })()
+                )}
+                {totalBillTrackerInvoices > billTrackerVisibleCount && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost bill-tracker-load"
+                    onClick={() =>
+                      setBillTrackerVisibleCount((prev) =>
+                        Math.min(prev + 4, totalBillTrackerInvoices)
+                      )
+                    }
+                  >
+                    Load more invoices
+                  </button>
                 )}
               </div>
 
@@ -4680,6 +5985,138 @@ export default function InvoicePage() {
           </div>
         </div>
       </div>
+      {/* Sticky actions reduce scrolling during review and delivery. */}
+      <div className="action-dock">
+        <div className="action-dock__status">
+          <span
+            className={`status-dot ${
+              isInvoiceValid ? "is-ready" : "is-blocked"
+            }`}
+            aria-hidden="true"
+          />
+          <div>
+            <p className="action-dock__headline">
+              {isInvoiceValid ? "Ready to send" : "Action needed"}
+            </p>
+            <p className="muted small">
+              {isInvoiceValid
+                ? "Invoice is complete. Print, save, or send when you are ready."
+                : `Missing: ${missingFields.slice(0, 3).join(", ")}${
+                    missingFields.length > 3 ? " and more." : "."
+                  }`}
+            </p>
+          </div>
+        </div>
+        <div className="action-dock__actions">
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={handleAddLineItemShortcut}
+          >
+            Add line item
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() =>
+              handleInvoiceActionWithReminder(
+                () => handleFinalizeInvoice({ shouldPrint: false }),
+                "Save invoice PDF"
+              )
+            }
+            disabled={!isInvoiceValid}
+            title={
+              isInvoiceValid
+                ? "Save invoice to Supabase"
+                : "Complete required fields before saving"
+            }
+          >
+            Save PDF
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() =>
+              handleInvoiceActionWithReminder(
+                handleSendInvoiceEmail,
+                "Send invoice email"
+              )
+            }
+            disabled={!isInvoiceValid || isEmailSending}
+            title={
+              isInvoiceValid
+                ? "Send the invoice email"
+                : "Complete required fields before sending"
+            }
+          >
+            {isEmailSending ? "Sending…" : "Send invoice"}
+          </button>
+        </div>
+      </div>
+
+      <CommandPalette
+        isOpen={isCommandOpen}
+        onClose={() => setIsCommandOpen(false)}
+        actions={commandActions}
+      />
+
+      {showDueReminderModal && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+            zIndex: 999,
+          }}
+        >
+          <div
+            className="card modal-card"
+            style={{
+              maxWidth: "520px",
+              width: "100%",
+              background: "var(--surface, #0b0d14)",
+              color: "var(--text, #f8fafc)",
+            }}
+          >
+            <p className="step-label">Payment reminder</p>
+            <h3 className="card-title">Confirm invoice action</h3>
+            <p className="muted">
+              Next payment due: <strong>{nextDueReminder.label}</strong>
+              {nextDueReminder.source ? ` (${nextDueReminder.source})` : ""}.
+            </p>
+            {projectedInvoiceDateLabel && (
+              <p className="muted small">
+                Projected next invoice ({weeklyHoursNumber || 20}h/week):{" "}
+                <strong>{projectedInvoiceDateLabel}</strong>
+              </p>
+            )}
+            <p className="muted small">Last paid invoice: {lastPaidDateLabel}</p>
+            <div className="workflow-actions" style={{ marginTop: "12px" }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={runPendingInvoiceAction}
+              >
+                Continue {pendingActionLabel ? `to ${pendingActionLabel}` : ""}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={dismissDueReminderModal}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (
         <div

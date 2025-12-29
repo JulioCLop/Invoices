@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { PROJECTS_DATA_KEY } from "../utils/storageKeys";
+import { fetchQuotes, saveQuote } from "../utils/supabaseApi";
 
 const pagePackages = [
   { label: "Simple Page", price: "$200–$300" },
@@ -129,6 +130,37 @@ const packageBudgetHints = {
   "Advanced Website": 12000,
 };
 
+const formatQuoteDate = (value) =>
+  value
+    ? new Date(value).toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
+    : "—";
+
+const deserializeQuote = (row) => ({
+  id: row.id,
+  projectName: row.project_name,
+  clientName: row.client_name,
+  selectedPackage: row.package,
+  budget: Number(row.budget) || 0,
+  notes: row.notes,
+  timelineWeeks: Number(row.timeline_weeks) || 0,
+  complexity: Number(row.complexity) || 1,
+  estimateRange: {
+    min: Number(row.estimate_min) || 0,
+    max: Number(row.estimate_max) || 0,
+  },
+  perWeekRange: {
+    min: Number(row.per_week_min) || 0,
+    max: Number(row.per_week_max) || 0,
+  },
+  retainerPlan: row.retainer_plan,
+  selectedTasks: Array.isArray(row.selected_tasks) ? row.selected_tasks : [],
+  createdAt: row.created_at,
+});
+
 const readProjects = () => {
   if (typeof window === "undefined") return [];
   try {
@@ -167,6 +199,7 @@ export default function Quote() {
   const [complexity, setComplexity] = useState(1.1);
   const [selectedTasks, setSelectedTasks] = useState(ESTIMATE_DEFAULT_TASKS);
   const [retainerPlan, setRetainerPlan] = useState(retainerPlans[1].title);
+  const [quoteHistory, setQuoteHistory] = useState([]);
   const selectedPackageDetails = pagePackages.find(
     (pkg) => pkg.label === selectedPackage
   );
@@ -326,6 +359,62 @@ export default function Quote() {
       });
     }
   };
+
+  const handleSaveQuote = async () => {
+    if (!projectName.trim()) {
+      setStatusMessage({
+        type: "warning",
+        text: "Add a project name before saving the quote.",
+      });
+      return;
+    }
+    const payload = {
+      id: Date.now().toString(),
+      project_name: projectName.trim(),
+      client_name: clientName.trim() || "Client",
+      package: selectedPackage,
+      budget: Number(budget) || 0,
+      notes: notes.trim(),
+      timeline_weeks: Number(timelineWeeks) || 0,
+      complexity: Number(complexity) || 1,
+      retainer_plan: retainerPlan,
+      estimate_min: estimateRange.min,
+      estimate_max: estimateRange.max,
+      per_week_min: perWeekRange.min,
+      per_week_max: perWeekRange.max,
+      selected_tasks: selectedTasks,
+      created_at: new Date().toISOString(),
+    };
+    try {
+      const saved = await saveQuote(payload);
+      setQuoteHistory((prev) => [deserializeQuote(saved), ...prev]);
+      setStatusMessage({
+        type: "success",
+        text: "Quote saved to Supabase for later reference.",
+      });
+    } catch (error) {
+      console.error("Unable to save quote", error);
+      setStatusMessage({
+        type: "warning",
+        text: "Unable to save quote. Please try again.",
+      });
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    fetchQuotes()
+      .then((rows) => {
+        if (!mounted) return;
+        setQuoteHistory(rows.map(deserializeQuote));
+      })
+      .catch((error) => {
+        console.error("Unable to load quotes", error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handlePrintQuote = () => {
     window.print();
@@ -522,6 +611,9 @@ export default function Quote() {
                 <button className="btn btn-primary" type="submit">
                   Create project from quote
                 </button>
+                <button className="btn btn-ghost" type="button" onClick={handleSaveQuote}>
+                  Save quote to database
+                </button>
                 <button
                   type="button"
                   className="btn btn-ghost"
@@ -580,6 +672,29 @@ export default function Quote() {
                   Send invoice
                 </Link>
               </div>
+            </div>
+
+            <div className="quote-card">
+              <h3>Saved quotes</h3>
+              {quoteHistory.length === 0 ? (
+                <p className="muted small">
+                  Save quotes to Supabase so approvals and follow ups are organized.
+                </p>
+              ) : (
+                <ul className="quote-list">
+                  {quoteHistory.slice(0, 3).map((quote) => (
+                    <li key={quote.id}>
+                      <strong>{quote.projectName || "Untitled quote"}</strong>
+                      <span className="muted small">
+                        {quote.clientName || "Client"} ·{" "}
+                        {formatCurrency(quote.estimateRange?.min)} –
+                        {formatCurrency(quote.estimateRange?.max)}
+                      </span>
+                      <span className="muted small">{formatQuoteDate(quote.createdAt)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
             <div className="quote-card">

@@ -18,6 +18,10 @@ const columns = [
 const statusOrder = columns.map((column) => column.key);
 const PRIORITY_SEQUENCE = ["low", "normal", "high"];
 const NOTIFICATION_LIMIT = 40;
+const WORK_HOURS_PER_DAY = 6;
+const WEEKLY_TARGET = 8;
+const getTodayInputValue = () => new Date().toISOString().split("T")[0];
+const PAYDAY_SETTINGS_KEY = "projects-payday-settings";
 
 const readProjects = () => {
   if (typeof window === "undefined") return initialProjects;
@@ -38,6 +42,8 @@ const readTasks = () => {
       priority: "normal",
       ...task,
       attachment: task.attachment || null,
+      startDate: task.startDate || getTodayInputValue(),
+      completedAt: task.completedAt || null,
     }));
   } catch {
     return initialTasks;
@@ -51,6 +57,23 @@ const readTaskNotifications = () => {
     return stored ? JSON.parse(stored) : [];
   } catch {
     return [];
+  }
+};
+
+const readPaydaySettings = () => {
+  if (typeof window === "undefined") {
+    return { payDay: getTodayInputValue(), cadence: "biweekly" };
+  }
+  try {
+    const stored = window.localStorage.getItem(PAYDAY_SETTINGS_KEY);
+    if (!stored) return { payDay: getTodayInputValue(), cadence: "biweekly" };
+    const parsed = JSON.parse(stored);
+    return {
+      payDay: parsed.payDay || getTodayInputValue(),
+      cadence: parsed.cadence || "biweekly",
+    };
+  } catch {
+    return { payDay: getTodayInputValue(), cadence: "biweekly" };
   }
 };
 
@@ -80,6 +103,17 @@ const formatCurrency = (value) =>
     maximumFractionDigits: 0,
   }).format(Number(value) || 0);
 
+const calculateProjectedEndDate = (startDate, hours) => {
+  if (!startDate) return null;
+  const start = new Date(startDate);
+  if (Number.isNaN(start.getTime())) return null;
+  const hoursValue = Number(hours) || 0;
+  const daysNeeded = Math.max(0, Math.ceil(hoursValue / WORK_HOURS_PER_DAY));
+  const projected = new Date(start);
+  projected.setDate(projected.getDate() + Math.max(daysNeeded - 1, 0));
+  return projected;
+};
+
 export default function Projects() {
   const [projects, setProjects] = useState(() => readProjects());
   const [tasks, setTasks] = useState(() => readTasks());
@@ -98,6 +132,7 @@ export default function Projects() {
     priority: "normal",
     dueDate: "",
     attachment: null,
+    startDate: getTodayInputValue(),
   });
   const [taskAttachmentResetKey, setTaskAttachmentResetKey] = useState(() => Date.now());
   const [draggedTaskId, setDraggedTaskId] = useState(null);
@@ -107,6 +142,9 @@ export default function Projects() {
   const [focusedDeveloper, setFocusedDeveloper] = useState("");
   const [taskNotifications, setTaskNotifications] = useState(() => readTaskNotifications());
   const [copiedNotificationId, setCopiedNotificationId] = useState(null);
+  const [editingTaskId, setEditingTaskId] = useState(null);
+  const [editingTask, setEditingTask] = useState(null);
+  const [{ payDay, cadence }, setPaydaySettings] = useState(() => readPaydaySettings());
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -125,6 +163,14 @@ export default function Projects() {
       JSON.stringify(taskNotifications)
     );
   }, [taskNotifications]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      PAYDAY_SETTINGS_KEY,
+      JSON.stringify({ payDay, cadence })
+    );
+  }, [payDay, cadence]);
 
   const projectsWithStats = useMemo(
     () =>
@@ -189,6 +235,50 @@ export default function Projects() {
       }),
     [tasks]
   );
+
+  const weeklyProgress = useMemo(() => {
+    const now = new Date();
+    const weekAgo = new Date(now);
+    weekAgo.setDate(now.getDate() - 7);
+    const completedThisWeek = tasks.filter(
+      (task) =>
+        task.status === "done" &&
+        task.completedAt &&
+        new Date(task.completedAt).getTime() >= weekAgo.getTime()
+    );
+    const completed = completedThisWeek.length;
+    const percent = Math.min(
+      100,
+      Math.round((completed / WEEKLY_TARGET) * 100)
+    );
+    return {
+      completed,
+      target: WEEKLY_TARGET,
+      percent,
+      remaining: Math.max(WEEKLY_TARGET - completed, 0),
+    };
+  }, [tasks]);
+
+  const payPeriodSummary = useMemo(() => {
+    const end = payDay ? new Date(payDay) : null;
+    if (!end || Number.isNaN(end.getTime())) {
+      return { tasks: [], count: 0, label: "Set pay day" };
+    }
+    const days = cadence === "weekly" ? 7 : 14;
+    const start = new Date(end);
+    start.setDate(end.getDate() - (days - 1));
+    const tasksCompleted = tasks.filter(
+      (task) =>
+        task.completedAt &&
+        new Date(task.completedAt).getTime() >= start.getTime() &&
+        new Date(task.completedAt).getTime() <= end.getTime()
+    );
+    const label = `${start.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    })} – ${end.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+    return { tasks: tasksCompleted, count: tasksCompleted.length, label };
+  }, [tasks, payDay, cadence]);
 
   const buildNotificationContent = (task, stage, projectName) => {
     const dueLabel = task.dueDate ? formatDateLabel(task.dueDate) : "no due date";
@@ -288,6 +378,8 @@ export default function Projects() {
         priority: newTask.priority,
         dueDate: newTask.dueDate,
         attachment: newTask.attachment,
+        startDate: newTask.startDate || getTodayInputValue(),
+        completedAt: null,
       },
     ]);
     setNewTask({
@@ -298,8 +390,49 @@ export default function Projects() {
       priority: "normal",
       dueDate: "",
       attachment: null,
+      startDate: getTodayInputValue(),
     });
     setTaskAttachmentResetKey(Date.now());
+  };
+
+  const startEditingTask = (task) => {
+    setEditingTaskId(task.id);
+    setEditingTask({
+      title: task.title,
+      assignee: task.assignee,
+      hours: String(task.hours || ""),
+      priority: task.priority || "normal",
+      dueDate: task.dueDate || "",
+      startDate: task.startDate || getTodayInputValue(),
+    });
+  };
+
+  const cancelEditingTask = () => {
+    setEditingTaskId(null);
+    setEditingTask(null);
+  };
+
+  const handleEditingTaskChange = (field, value) => {
+    setEditingTask((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleSaveEditingTask = () => {
+    if (!editingTaskId || !editingTask) return;
+    setTasks((prev) =>
+      prev.map((task) => {
+        if (task.id !== editingTaskId) return task;
+        return {
+          ...task,
+          title: editingTask.title.trim() || task.title,
+          assignee: editingTask.assignee.trim(),
+          hours: Number(editingTask.hours) || 0,
+          priority: editingTask.priority,
+          dueDate: editingTask.dueDate || "",
+          startDate: editingTask.startDate || task.startDate,
+        };
+      })
+    );
+    cancelEditingTask();
   };
 
   const handleRemoveProject = (projectId) => {
@@ -340,14 +473,30 @@ export default function Projects() {
 
   const handleDragStart = (taskId) => setDraggedTaskId(taskId);
 
+  const applyStatusTransition = (task, nextStatus) => {
+    if (task.status === nextStatus) return task;
+    const movingToDone = nextStatus === "done";
+    const leavingDone = task.status === "done" && nextStatus !== "done";
+    return {
+      ...task,
+      status: nextStatus,
+      completedAt: movingToDone
+        ? new Date().toISOString()
+        : leavingDone
+        ? null
+        : task.completedAt,
+    };
+  };
+
   const handleDrop = (status) => {
     if (!draggedTaskId) return;
     let triggeredTask = null;
     setTasks((prev) =>
       prev.map((task) => {
         if (task.id !== draggedTaskId || task.status === status) return task;
-        triggeredTask = task;
-        return { ...task, status };
+        const updatedTask = applyStatusTransition(task, status);
+        triggeredTask = updatedTask;
+        return updatedTask;
       })
     );
     setDraggedTaskId(null);
@@ -376,10 +525,13 @@ export default function Projects() {
             : Math.min(statusOrder.length - 1, currentIndex + 1);
         const nextStatus = statusOrder[nextIndex];
         if (nextStatus !== task.status) {
-          triggeredTask = task;
           triggeredStatus = nextStatus;
         }
-        return { ...task, status: nextStatus };
+        const updatedTask = applyStatusTransition(task, nextStatus);
+        if (updatedTask !== task) {
+          triggeredTask = updatedTask;
+        }
+        return updatedTask;
       })
     );
     if (triggeredTask && triggeredStatus) {
@@ -403,8 +555,9 @@ export default function Projects() {
     setTasks((prev) =>
       prev.map((task) => {
         if (task.id !== taskId) return task;
-        completedTask = task;
-        return { ...task, status: "done" };
+        const updatedTask = applyStatusTransition(task, "done");
+        completedTask = updatedTask;
+        return updatedTask;
       })
     );
     if (completedTask) {
@@ -682,6 +835,7 @@ export default function Projects() {
                       priority: "normal",
                       dueDate: "",
                       attachment: null,
+                      startDate: getTodayInputValue(),
                     });
                     setTaskAttachmentResetKey(Date.now());
                   }}
@@ -740,6 +894,17 @@ export default function Projects() {
                     value={newTask.hours}
                     onChange={(e) =>
                       setNewTask((prev) => ({ ...prev, hours: e.target.value }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>Start date</span>
+                  <input
+                    className="input control"
+                    type="date"
+                    value={newTask.startDate}
+                    onChange={(e) =>
+                      setNewTask((prev) => ({ ...prev, startDate: e.target.value }))
                     }
                   />
                 </label>
@@ -1103,6 +1268,84 @@ export default function Projects() {
             <span>{overdueTasks.length} overdue</span>
             <span>{boardSummary.developers} active developer{boardSummary.developers === 1 ? "" : "s"}</span>
           </div>
+          <div className="weekly-progress">
+            <div className="weekly-progress__header">
+              <div>
+                <p className="muted small">Weekly progress</p>
+                <strong>
+                  {weeklyProgress.completed}/{weeklyProgress.target}
+                </strong>
+              </div>
+              <span className="muted small">
+                {weeklyProgress.remaining === 0
+                  ? "Goal met"
+                  : `${weeklyProgress.remaining} remaining`}
+              </span>
+            </div>
+            <div className="weekly-progress__bar">
+              <span style={{ width: `${weeklyProgress.percent}%` }}></span>
+            </div>
+          </div>
+          <div className="pay-period">
+            <div className="pay-period__controls">
+              <label>
+                <span className="muted small">Next pay day</span>
+                <input
+                  className="input control"
+                  type="date"
+                  value={payDay}
+                  onChange={(e) =>
+                    setPaydaySettings((prev) => ({ ...prev, payDay: e.target.value }))
+                  }
+                />
+              </label>
+              <label>
+                <span className="muted small">Cadence</span>
+                <select
+                  className="input control"
+                  value={cadence}
+                  onChange={(e) =>
+                    setPaydaySettings((prev) => ({ ...prev, cadence: e.target.value }))
+                  }
+                >
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Bi-weekly</option>
+                </select>
+              </label>
+            </div>
+            <div className="pay-period__summary">
+              <div>
+                <p className="muted small">Current period</p>
+                <strong>{payPeriodSummary.label}</strong>
+              </div>
+              <div>
+                <p className="muted small">Tasks completed</p>
+                <strong>{payPeriodSummary.count}</strong>
+              </div>
+            </div>
+            {payPeriodSummary.tasks.length > 0 ? (
+              <ul className="pay-period__list">
+                {payPeriodSummary.tasks.slice(0, 5).map((task) => (
+                  <li key={`pay-period-${task.id}`}>
+                    <strong>{task.title}</strong>
+                    <span className="muted small">
+                      {task.assignee || "Unassigned"} ·{" "}
+                      {task.completedAt
+                        ? new Date(task.completedAt).toLocaleDateString()
+                        : ""}
+                    </span>
+                  </li>
+                ))}
+                {payPeriodSummary.tasks.length > 5 && (
+                  <li className="muted small">
+                    +{payPeriodSummary.tasks.length - 5} more
+                  </li>
+                )}
+              </ul>
+            ) : (
+              <p className="muted small">No tasks completed this pay period yet.</p>
+            )}
+          </div>
           <div className="projects-board__pulse">
             {columnStats.map((stat) => (
               <div key={`pulse-${stat.key}`}>
@@ -1133,6 +1376,19 @@ export default function Projects() {
                       const projectName =
                         projects.find((project) => project.id === task.projectId)?.name ||
                         "Project";
+                      const startLabel = task.startDate
+                        ? formatDateLabel(task.startDate)
+                        : "No start";
+                      const projectedEndDate = calculateProjectedEndDate(
+                        task.startDate,
+                        task.hours
+                      );
+                      const projectedLabel = projectedEndDate
+                        ? projectedEndDate.toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : "TBD";
                       return (
                         <div
                           key={task.id}
@@ -1166,6 +1422,21 @@ export default function Projects() {
                           <div className="kanban-card__meta">
                             <span>{task.assignee || "Unassigned"}</span>
                             <span>{task.hours} hrs</span>
+                          </div>
+                          <div className="kanban-card__labels">
+                            <span className="kanban-label">
+                              Priority: {(task.priority || "normal").toUpperCase()}
+                            </span>
+                            <span className="kanban-label">
+                              Due:{" "}
+                              {task.dueDate
+                                ? formatDateLabel(task.dueDate)
+                                : "None"}
+                            </span>
+                          </div>
+                          <div className="kanban-card__schedule">
+                            <span>Start {startLabel}</span>
+                            <span>ETA {projectedLabel}</span>
                           </div>
                           {task.attachment && (
                             <div className="kanban-card__asset">
@@ -1207,11 +1478,107 @@ export default function Projects() {
                             <button
                               type="button"
                               className="btn btn-ghost btn-small"
+                              onClick={() => startEditingTask(task)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="btn btn-ghost btn-small"
                               onClick={() => handleRemoveTask(task.id)}
                             >
                               Remove
                             </button>
                           </div>
+                          {editingTaskId === task.id && editingTask && (
+                            <div className="kanban-edit">
+                              <label>
+                                <span>Title</span>
+                                <input
+                                  className="input control"
+                                  value={editingTask.title}
+                                  onChange={(e) =>
+                                    handleEditingTaskChange("title", e.target.value)
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span>Assignee</span>
+                                <input
+                                  className="input control"
+                                  value={editingTask.assignee}
+                                  onChange={(e) =>
+                                    handleEditingTaskChange("assignee", e.target.value)
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span>Hours</span>
+                                <input
+                                  className="input control"
+                                  type="number"
+                                  min="0"
+                                  step="0.25"
+                                  value={editingTask.hours}
+                                  onChange={(e) =>
+                                    handleEditingTaskChange("hours", e.target.value)
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span>Priority</span>
+                                <select
+                                  className="input control"
+                                  value={editingTask.priority}
+                                  onChange={(e) =>
+                                    handleEditingTaskChange("priority", e.target.value)
+                                  }
+                                >
+                                  <option value="low">Low</option>
+                                  <option value="normal">Normal</option>
+                                  <option value="high">High</option>
+                                </select>
+                              </label>
+                              <label>
+                                <span>Start date</span>
+                                <input
+                                  className="input control"
+                                  type="date"
+                                  value={editingTask.startDate}
+                                  onChange={(e) =>
+                                    handleEditingTaskChange("startDate", e.target.value)
+                                  }
+                                />
+                              </label>
+                              <label>
+                                <span>Due date</span>
+                                <input
+                                  className="input control"
+                                  type="date"
+                                  value={editingTask.dueDate}
+                                  onChange={(e) =>
+                                    handleEditingTaskChange("dueDate", e.target.value)
+                                  }
+                                />
+                              </label>
+                              <div className="kanban-edit__actions">
+                                <button
+                                  type="button"
+                                  className="btn btn-primary btn-small"
+                                  onClick={handleSaveEditingTask}
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-small"
+                                  onClick={cancelEditingTask}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })

@@ -1,39 +1,29 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  deleteExpense,
+  fetchExpenses,
+  saveExpense,
+  updateExpenseStatus,
+} from "../utils/supabaseApi";
 
-const initialExpenses = [
-  {
-    id: 1,
-    vendor: "Figma",
-    category: "Software",
-    amount: 38,
-    date: "2024-06-01",
-    notes: "Team license",
-    reimbursable: false,
-    status: "Cleared",
-  },
-  {
-    id: 2,
-    vendor: "AWS",
-    category: "Hosting",
-    amount: 210,
-    date: "2024-06-03",
-    notes: "Client infrastructure",
-    reimbursable: true,
-    status: "Pending",
-  },
-  {
-    id: 3,
-    vendor: "Upwork",
-    category: "Contractor",
-    amount: 450,
-    date: "2024-06-05",
-    notes: "Animation support",
-    reimbursable: false,
-    status: "Cleared",
-  },
-];
+const categories = ["Software", "Hosting", "Contractor", "Travel", "Operations", "Tools"];
 
-const categories = ["Software", "Hosting", "Contractor", "Travel", "Operations"];
+const deserializeExpense = (row) => ({
+  id: row.id,
+  vendor: row.vendor || "",
+  category: row.category || "Software",
+  amount: Number(row.amount) || 0,
+  date: row.date ? row.date.split("T")[0] : "",
+  notes: row.notes || "",
+  reimbursable: row.reimbursable || false,
+  status: row.status || "Pending",
+});
+
+const serializeExpense = (expense) => ({
+  ...expense,
+  amount: Number(expense.amount) || 0,
+  date: expense.date || new Date().toISOString().split("T")[0],
+});
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("en-US", {
@@ -42,7 +32,7 @@ const formatCurrency = (value) =>
   }).format(Number(value) || 0);
 
 export default function Expenses() {
-  const [expenses, setExpenses] = useState(initialExpenses);
+  const [expenses, setExpenses] = useState([]);
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -83,38 +73,76 @@ export default function Expenses() {
     return { total, reimbursable, pending };
   }, [expenses]);
 
-  const handleAddExpense = (event) => {
+  const pushExpense = (expense) => {
+    setExpenses((prev) => [expense, ...prev]);
+  };
+
+  const handleAddExpense = async (event) => {
     event.preventDefault();
     if (!newExpense.vendor.trim() || !newExpense.amount) return;
-    setExpenses((prev) => [
-      {
-        ...newExpense,
-        id: Date.now(),
-        vendor: newExpense.vendor.trim(),
-        amount: Number(newExpense.amount),
-      },
-      ...prev,
-    ]);
-    setNewExpense({
-      vendor: "",
-      category: "Software",
-      amount: "",
-      date: "",
-      notes: "",
-      reimbursable: false,
-      status: "Pending",
+    const payload = serializeExpense({
+      ...newExpense,
+      vendor: newExpense.vendor.trim(),
     });
+    try {
+      const saved = await saveExpense(payload);
+      pushExpense(deserializeExpense(saved));
+    } catch (error) {
+      console.error("Unable to save expense, falling back to local state", error);
+      pushExpense({ ...payload, id: Date.now() });
+    } finally {
+      setNewExpense({
+        vendor: "",
+        category: "Software",
+        amount: "",
+        date: "",
+        notes: "",
+        reimbursable: false,
+        status: "Pending",
+      });
+    }
   };
 
-  const handleStatusChange = (id, status) => {
-    setExpenses((prev) =>
-      prev.map((expense) => (expense.id === id ? { ...expense, status } : expense))
-    );
+  const handleStatusChange = async (id, status) => {
+    try {
+      const updated = await updateExpenseStatus(id, status);
+      setExpenses((prev) =>
+        prev.map((expense) =>
+          expense.id === id ? deserializeExpense(updated) : expense
+        )
+      );
+    } catch (error) {
+      console.error("Unable to update expense status, updating locally", error);
+      setExpenses((prev) =>
+        prev.map((expense) => (expense.id === id ? { ...expense, status } : expense))
+      );
+    }
   };
 
-  const handleRemoveExpense = (id) => {
-    setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+  const handleRemoveExpense = async (id) => {
+    try {
+      await deleteExpense(id);
+      setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+    } catch (error) {
+      console.error("Unable to remove expense, removing locally", error);
+      setExpenses((prev) => prev.filter((expense) => expense.id !== id));
+    }
   };
+
+  useEffect(() => {
+    let mounted = true;
+    fetchExpenses()
+      .then((rows) => {
+        if (!mounted) return;
+        setExpenses(rows.map(deserializeExpense));
+      })
+      .catch((error) => {
+        console.error("Unable to load expenses", error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className="page-wrap expenses-page">

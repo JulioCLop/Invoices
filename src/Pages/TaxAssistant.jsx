@@ -1,4 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  fetchTaxRemittances,
+  saveTaxRemittance,
+  updateTaxRemittance,
+} from "../utils/supabaseApi";
 
 const initialRemittances = [
   { id: 1, quarter: "Q1", dueDate: "2024-04-15", amount: 1800, status: "Paid" },
@@ -6,6 +11,20 @@ const initialRemittances = [
   { id: 3, quarter: "Q3", dueDate: "2024-09-15", amount: 0, status: "Upcoming" },
   { id: 4, quarter: "Q4", dueDate: "2025-01-15", amount: 0, status: "Upcoming" },
 ];
+
+const deserializeRemittance = (row) => ({
+  id: row.id,
+  quarter: row.quarter || "Q1",
+  dueDate: row.due_date ? row.due_date.split("T")[0] : "",
+  amount: Number(row.amount) || 0,
+  status: row.status || "Pending",
+});
+
+const serializeRemittance = (remittance) => ({
+  ...remittance,
+  amount: Number(remittance.amount) || 0,
+  due_date: remittance.dueDate || new Date().toISOString().split("T")[0],
+});
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("en-US", {
@@ -55,30 +74,51 @@ export default function TaxAssistant() {
     setEstimate((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleAddRemittance = (event) => {
+  const handleAddRemittance = async (event) => {
     event.preventDefault();
     if (!newRemittance.amount || !newRemittance.dueDate) return;
-    setRemittances((prev) => [
-      ...prev,
-      {
-        ...newRemittance,
-        id: Date.now(),
-        amount: Number(newRemittance.amount),
-      },
-    ]);
-    setNewRemittance({
-      quarter: "Q3",
-      amount: "",
-      dueDate: "",
-      status: "Pending",
-    });
+    const payload = serializeRemittance(newRemittance);
+    try {
+      const saved = await saveTaxRemittance(payload);
+      setRemittances((prev) => [deserializeRemittance(saved), ...prev]);
+      setNewRemittance({
+        quarter: "Q3",
+        amount: "",
+        dueDate: "",
+        status: "Pending",
+      });
+    } catch (error) {
+      console.error("Unable to save remittance", error);
+    }
   };
 
-  const handleStatusChange = (id, status) => {
-    setRemittances((prev) =>
-      prev.map((remit) => (remit.id === id ? { ...remit, status } : remit))
-    );
+  const handleStatusChange = async (id, status) => {
+    try {
+      const updated = await updateTaxRemittance(id, { status });
+      setRemittances((prev) =>
+        prev.map((remit) =>
+          remit.id === id ? deserializeRemittance(updated) : remit
+        )
+      );
+    } catch (error) {
+      console.error("Unable to update remittance status", error);
+    }
   };
+
+  useEffect(() => {
+    let mounted = true;
+    fetchTaxRemittances()
+      .then((rows) => {
+        if (!mounted) return;
+        setRemittances(rows.map(deserializeRemittance));
+      })
+      .catch((error) => {
+        console.error("Unable to load remittances", error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className="page-wrap tax-page">

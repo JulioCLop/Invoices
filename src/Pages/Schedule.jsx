@@ -1,4 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  deleteScheduleEvent,
+  fetchScheduleEvents,
+  saveScheduleEvent,
+  updateScheduleStatus,
+} from "../utils/supabaseApi";
 
 const initialMeetings = [
   {
@@ -56,8 +62,25 @@ const formatDateLabel = (value) => {
   });
 };
 
+const deserializeEvent = (row) => ({
+  id: row.id,
+  title: row.title || "",
+  client: row.client || "",
+  date: row.date ? row.date.split("T")[0] : "",
+  time: row.time || "",
+  type: row.type || "Call",
+  duration: Number(row.duration) || 0,
+  status: row.status || "Scheduled",
+});
+
+const serializeEvent = (event) => ({
+  ...event,
+  duration: Number(event.duration) || 0,
+});
+
 export default function Schedule() {
   const [events, setEvents] = useState(initialMeetings);
+  const [editingId, setEditingId] = useState("");
   const [newEvent, setNewEvent] = useState({
     title: "",
     client: "",
@@ -108,18 +131,29 @@ export default function Schedule() {
     };
   }, [events]);
 
-  const handleAddEvent = (event) => {
+  const handleAddEvent = async (event) => {
     event.preventDefault();
     if (!newEvent.title.trim()) return;
-    setEvents((prev) => [
-      {
-        ...newEvent,
-        id: Date.now(),
-        title: newEvent.title.trim(),
-        client: newEvent.client.trim() || "Client",
-      },
-      ...prev,
-    ]);
+    const payload = serializeEvent({
+      ...newEvent,
+      title: newEvent.title.trim(),
+      client: newEvent.client.trim() || "Client",
+      id: editingId || undefined,
+    });
+    try {
+      const saved = await saveScheduleEvent(payload);
+      setEvents((prev) => {
+        const next = prev.filter((e) => String(e.id) !== String(saved.id));
+        return [deserializeEvent(saved), ...next];
+      });
+    } catch (error) {
+      console.error("Unable to save schedule event", error);
+      setEvents((prev) => [
+        { ...payload, id: Date.now() },
+        ...prev,
+      ]);
+    }
+    setEditingId("");
     setNewEvent({
       title: "",
       client: "",
@@ -131,15 +165,72 @@ export default function Schedule() {
     });
   };
 
-  const handleUpdateStatus = (id, status) => {
-    setEvents((prev) =>
-      prev.map((event) => (event.id === id ? { ...event, status } : event))
-    );
+  const handleEditSelect = (event) => {
+    setEditingId(event.id);
+    setNewEvent({
+      title: event.title || "",
+      client: event.client || "",
+      date: event.date || "",
+      time: event.time || "",
+      type: event.type || "Call",
+      duration: event.duration || 60,
+      status: event.status || "Scheduled",
+    });
   };
 
-  const handleRemoveEvent = (id) => {
-    setEvents((prev) => prev.filter((event) => event.id !== id));
+  const handleCancelEdit = () => {
+    setEditingId("");
+    setNewEvent({
+      title: "",
+      client: "",
+      date: "",
+      time: "",
+      type: "Call",
+      duration: 60,
+      status: "Scheduled",
+    });
   };
+
+  const handleUpdateStatus = async (id, status) => {
+    try {
+      const updated = await updateScheduleStatus(id, status);
+      setEvents((prev) =>
+        prev.map((event) =>
+          event.id === id ? deserializeEvent(updated) : event
+        )
+      );
+    } catch (error) {
+      console.error("Unable to update schedule status", error);
+      setEvents((prev) =>
+        prev.map((event) => (event.id === id ? { ...event, status } : event))
+      );
+    }
+  };
+
+  const handleRemoveEvent = async (id) => {
+    try {
+      await deleteScheduleEvent(id);
+      setEvents((prev) => prev.filter((event) => event.id !== id));
+    } catch (error) {
+      console.error("Unable to remove schedule event", error);
+      setEvents((prev) => prev.filter((event) => event.id !== id));
+    }
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    fetchScheduleEvents()
+      .then((rows) => {
+        if (!mounted) return;
+        setEvents(rows.map(deserializeEvent));
+      })
+      .catch((error) => {
+        console.error("Unable to load schedule events", error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className="page-wrap schedule-page">
@@ -241,9 +332,20 @@ export default function Schedule() {
                   <option value="Delivery">Delivery</option>
                 </select>
               </label>
-              <button className="btn btn-primary" type="submit">
-                Add to schedule
-              </button>
+              <div className="schedule-form__actions">
+                <button className="btn btn-primary" type="submit">
+                  {editingId ? "Save changes" : "Add to schedule"}
+                </button>
+                {editingId && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={handleCancelEdit}
+                  >
+                    Cancel edit
+                  </button>
+                )}
+              </div>
             </form>
           </div>
 
@@ -277,6 +379,13 @@ export default function Schedule() {
                       onClick={() => handleRemoveEvent(event.id)}
                     >
                       Remove
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-small"
+                      onClick={() => handleEditSelect(event)}
+                    >
+                      Edit
                     </button>
                   </div>
                 </li>
@@ -315,6 +424,34 @@ export default function Schedule() {
                         <span className={`schedule-pill schedule-pill--${event.status.toLowerCase()}`}>
                           {event.status}
                         </span>
+                        <div className="schedule-day__actions">
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-small"
+                            onClick={() => handleEditSelect(event)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-small"
+                            onClick={() => handleRemoveEvent(event.id)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="schedule-tooltip">
+                          <p className="muted tiny">Client / Team</p>
+                          <strong>{event.client || "Client"}</strong>
+                          <p className="muted tiny">Date</p>
+                          <span>{formatDateLabel(event.date)}</span>
+                          <p className="muted tiny">Time</p>
+                          <span>{formatTime(event.time)}</span>
+                          <p className="muted tiny">Type & duration</p>
+                          <span>
+                            {event.type} · {event.duration || 0} mins
+                          </span>
+                        </div>
                       </div>
                     ))
                   )}

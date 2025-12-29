@@ -3,14 +3,15 @@ import { Link } from "react-router-dom";
 import { INVOICE_HISTORY_KEY } from "../utils/storageKeys";
 
 const tableColumns = [
-  { key: "invoiceNumber", label: "Invoice #" },
-  { key: "client", label: "Client" },
-  { key: "clientEmail", label: "Client Email" },
-  { key: "recipientEmail", label: "Delivery Email" },
-  { key: "total", label: "Total" },
-  { key: "status", label: "Status" },
-  { key: "createdAt", label: "Created" },
-  { key: "emailedAt", label: "Dispatched" },
+  { key: "invoiceNumber", label: "Invoice #", className: "col-invoice" },
+  { key: "client", label: "Client", className: "col-client" },
+  { key: "clientEmail", label: "Client Email", className: "col-email" },
+  { key: "recipientEmail", label: "Delivery Email", className: "col-email" },
+  { key: "total", label: "Total", className: "col-total" },
+  { key: "status", label: "Status", className: "col-status" },
+  { key: "emailedAt", label: "Dispatched", className: "col-date" },
+  { key: "dueDate", label: "Due", className: "col-date" },
+  { key: "paidAt", label: "Paid", className: "col-date" },
 ];
 
 const loadHistory = () => {
@@ -30,34 +31,42 @@ const formatCurrency = (value) =>
     currency: "USD",
   }).format(Number(value) || 0);
 
+const parseDateSafe = (value) => {
+  if (!value) return null;
+  const stringValue = typeof value === "string" ? value : String(value);
+  const datePart = stringValue.split("T")[0];
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    const [year, month, day] = datePart.split("-").map(Number);
+    const date = new Date(year, month - 1, day, 12, 0, 0);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
 const formatDate = (isoString) => {
   if (!isoString) return "—";
-  try {
-    return new Date(isoString).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return "—";
-  }
+  const parsed = parseDateSafe(isoString);
+  if (!parsed) return "—";
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 };
 
 const formatDateTime = (isoString) => {
   if (!isoString) return "—";
-  try {
-    const date = new Date(isoString);
-    return `${date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })} ${date.toLocaleTimeString(undefined, {
-      hour: "numeric",
-      minute: "2-digit",
-    })}`;
-  } catch {
-    return "—";
-  }
+  const date = parseDateSafe(isoString);
+  if (!date) return "—";
+  return `${date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  })} ${date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
 };
 
 const csvEscape = (value) => {
@@ -75,7 +84,7 @@ export default function Transactions() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [clientFilter, setClientFilter] = useState("all");
   const [dateRange, setDateRange] = useState({ from: "", to: "" });
-  const [sortKey, setSortKey] = useState("createdAt");
+  const [sortKey, setSortKey] = useState("emailedAt");
   const [sortDirection, setSortDirection] = useState("desc");
 
   const refreshHistory = () => {
@@ -134,10 +143,15 @@ export default function Transactions() {
         total: formatCurrency(invoice.total),
         totalRaw: Number(invoice.total) || 0,
         status: invoice.paid ? "Paid" : "Unpaid",
-        createdAt: formatDate(invoice.createdAt),
-        createdRaw: invoice.createdAt,
+        createdRaw: invoice.invoiceDate || invoice.createdAt,
+        createdAt: formatDate(invoice.invoiceDate || invoice.createdAt),
         emailedAt: formatDateTime(invoice.emailedAt),
         emailedRaw: invoice.emailedAt,
+        dueDate: formatDate(
+          invoice.dueDate || invoice.invoiceDate || invoice.createdAt
+        ),
+        dueRaw: invoice.dueDate || invoice.invoiceDate || invoice.createdAt,
+        paidAt: invoice.paidAt ? formatDate(invoice.paidAt) : "—",
         paidRaw: invoice.paidAt,
       })),
     [history]
@@ -156,7 +170,7 @@ export default function Transactions() {
       })
       .filter((row) => {
         if (!search.trim()) return true;
-        const haystack = `${row.invoiceNumber} ${row.client} ${row.clientEmail} ${row.recipientEmail}`.toLowerCase();
+        const haystack = `${row.invoiceNumber} ${row.client} ${row.clientEmail} ${row.recipientEmail} ${row.dueDate} ${row.paidAt}`.toLowerCase();
         return haystack.includes(search.toLowerCase());
       })
       .filter((row) => {
@@ -178,6 +192,20 @@ export default function Transactions() {
         if (sortKey === "client") {
           return a.client.localeCompare(b.client) * direction;
         }
+        if (sortKey === "dueDate") {
+          return (
+            ((a.dueRaw ? parseDateSafe(a.dueRaw)?.getTime() || 0 : 0) -
+              (b.dueRaw ? parseDateSafe(b.dueRaw)?.getTime() || 0 : 0)) *
+            direction
+          );
+        }
+        if (sortKey === "paidAt") {
+          return (
+            ((a.paidRaw ? parseDateSafe(a.paidRaw)?.getTime() || 0 : 0) -
+              (b.paidRaw ? parseDateSafe(b.paidRaw)?.getTime() || 0 : 0)) *
+            direction
+          );
+        }
         const keyMap = {
           createdAt: "createdRaw",
           emailedAt: "emailedRaw",
@@ -185,6 +213,11 @@ export default function Transactions() {
         };
         const aValue = keyMap[sortKey] ? a[keyMap[sortKey]] : a[sortKey];
         const bValue = keyMap[sortKey] ? b[keyMap[sortKey]] : b[sortKey];
+        if (sortKey === "createdAt" || sortKey === "emailedAt") {
+          const aTime = aValue ? parseDateSafe(aValue)?.getTime() || 0 : 0;
+          const bTime = bValue ? parseDateSafe(bValue)?.getTime() || 0 : 0;
+          return (aTime - bTime) * direction;
+        }
         if (!aValue && !bValue) return 0;
         if (!aValue) return 1 * direction;
         if (!bValue) return -1 * direction;
@@ -203,7 +236,17 @@ export default function Transactions() {
   const rows = filteredRows;
 
   const csvData = useMemo(() => {
-    const header = ["Invoice #", "Client", "Client Email", "Delivery Email", "Status", "Total", "Created", "Dispatched"];
+    const header = [
+      "Invoice #",
+      "Client",
+      "Client Email",
+      "Delivery Email",
+      "Status",
+      "Total",
+      "Dispatched",
+      "Due",
+      "Paid",
+    ];
     const dataRows = rows.map((row) => [
       row.invoiceNumber,
       row.client,
@@ -211,8 +254,9 @@ export default function Transactions() {
       row.recipientEmail,
       row.status,
       row.total,
-      row.createdAt,
       row.emailedAt,
+      row.dueDate,
+      row.paidAt,
     ]);
     return [header, ...dataRows]
       .map((row) => row.map(csvEscape).join(","))
@@ -353,11 +397,12 @@ export default function Transactions() {
                 value={sortKey}
                 onChange={(e) => setSortKey(e.target.value)}
               >
-                <option value="createdAt">Created date</option>
                 <option value="emailedAt">Dispatched</option>
                 <option value="invoiceNumber">Invoice #</option>
                 <option value="client">Client</option>
                 <option value="totalRaw">Total</option>
+                <option value="dueDate">Due date</option>
+                <option value="paidAt">Paid date</option>
               </select>
             </label>
             <label>
@@ -447,11 +492,18 @@ export default function Transactions() {
 
             <div className="transactions-table-wrap">
               <table className="transactions-table" role="grid">
+                <colgroup>
+                  <col className="col-number" />
+                  {tableColumns.map((column) => (
+                    <col
+                      key={`col-${column.key}`}
+                      className={column.className || ""}
+                    />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr>
-                    <th scope="col" className="row-number-header">
-                      #
-                    </th>
+                    <th scope="col" className="row-number-header">#</th>
                     {tableColumns.map((column) => (
                       <th key={column.key} scope="col">
                         {column.label}
@@ -463,22 +515,26 @@ export default function Transactions() {
                   {rows.map((row) => (
                     <tr key={row.id}>
                       <td className="row-number-cell">{row.rowNumber}</td>
-                      <td>{row.invoiceNumber}</td>
-                      <td>{row.client}</td>
-                      <td>{row.clientEmail}</td>
-                      <td>{row.recipientEmail}</td>
-                      <td>{row.total}</td>
-                      <td>
-                        <span
-                          className={`transaction-status transaction-status--${
-                            row.status === "Paid" ? "paid" : "unpaid"
-                          }`}
-                        >
-                          {row.status}
-                        </span>
-                      </td>
-                      <td>{row.createdAt}</td>
-                      <td>{row.emailedAt}</td>
+                      {tableColumns.map((column) => {
+                        if (column.key === "status") {
+                          return (
+                            <td key={`${row.id}-${column.key}`}>
+                              <span
+                                className={`transaction-status transaction-status--${
+                                  row.status === "Paid" ? "paid" : "unpaid"
+                                }`}
+                              >
+                                {row.status}
+                              </span>
+                            </td>
+                          );
+                        }
+                        return (
+                          <td key={`${row.id}-${column.key}`}>
+                            {row[column.key] ?? "—"}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
