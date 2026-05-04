@@ -1,0 +1,110 @@
+.App {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.container {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 2rem;
+  width: 100%;
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.6s ease-out forwards;
+}
+
+/* Print & PDF Export Styles */
+@media print {
+  body {
+    background: white;
+  }
+  
+  .no-print {
+    display: none !important;
+  }
+  
+  .glass-panel {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: transparent !important;
+  }
+
+  .input-field {
+    border: none !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    color: var(--text-main) !important;
+    pointer-events: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+  }
+
+  .input-field:placeholder-shown {
+    color: transparent !important;
+  }
+
+  .invoice-table th {
+    border-bottom: 2px solid var(--primary) !important;
+    color: var(--primary) !important;
+  }
+
+  .invoice-table td {
+    border-bottom: 1px solid #E5E7EB !important;
+  }
+}
+
+/* PDF Generation Classes (.is-printing) */
+.is-printing {
+  background: white !important;
+}
+
+.is-printing .no-print {
+  display: none !important;
+}
+
+.is-printing .glass-panel, .is-printing.glass-panel {
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background: transparent !important;
+}
+
+.is-printing .input-field {
+  border: none !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  color: var(--text-main) !important;
+  pointer-events: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+.is-printing .input-field:placeholder-shown {
+  color: transparent !important;
+}
+
+.is-printing .invoice-table th {
+  border-bottom: 2px solid var(--primary) !important;
+  color: var(--primary) !important;
+}
+
+.is-printing .invoice-table td {
+  border-bottom: 1px solid #E5E7EB !important;
+}
