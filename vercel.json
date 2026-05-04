@@ -1,0 +1,6 @@
+{
+  "framework": "create-react-app",
+  "installCommand": "npm ci --include=dev",
+  "buildCommand": "NODE_OPTIONS=--no-deprecation GENERATE_SOURCEMAP=false npm run build",
+  "outputDirectory": "build"
+}
