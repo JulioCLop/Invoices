@@ -77,7 +77,6 @@ export default function InvoicePage() {
     const minPageHeight = Math.ceil(w * (11 / 8.5));
     el.style.minHeight = `${minPageHeight}px`;
     await new Promise(r => requestAnimationFrame(r));
-    const h = Math.max(el.scrollHeight, minPageHeight);
     return {
       el,
       cleanup: () => {
