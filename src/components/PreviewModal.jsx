@@ -1,4 +1,3 @@
-import React from 'react';
 
 export default function PreviewModal({ isOpen, onClose, pdfUrl, title }) {
   if (!isOpen) return null;

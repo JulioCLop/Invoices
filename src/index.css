@@ -124,58 +124,6 @@ a:hover {
   box-shadow: var(--shadow-md);
 }
 
-/* Forms */
-.input-group {
-  margin-bottom: 1.5rem;
-  display: flex;
-  flex-direction: column;
-}
-
-.input-group label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-}
-
-.input-field {
-  padding: 0.75rem 1rem;
-  font-size: 1rem;
-  font-family: inherit;
-  border: 1px solid #D1D5DB;
-  border-radius: var(--radius-md);
-  background-color: rgba(255, 255, 255, 0.9);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-  width: 100%;
-}
-
-.input-field:focus {
-  outline: none;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2);
-}
-
-/* Table */
-.invoice-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 2rem;
-}
-
-.invoice-table th {
-  text-align: left;
-  padding: 1rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  border-bottom: 2px solid var(--border);
-}
-
-.invoice-table td {
-  padding: 1rem;
-  border-bottom: 1px solid var(--border);
-  vertical-align: middle;
-}
-
 /* Utilities */
 .text-center { text-align: center; }
 .text-right { text-align: right; }
@@ -259,4 +207,225 @@ a:hover {
   color: var(--text-muted);
   font-weight: 500;
   z-index: 10;
+}
+
+/* Tri-Tech Studio Specific Template Styles */
+.tri-red { color: #E43A36 !important; }
+
+.template-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.template-header .logo-container {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.template-header .logo-icon {
+  width: 48px;
+  height: 48px;
+  background: linear-gradient(135deg, #e43a36, #c02925);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 1.5rem;
+}
+
+.template-header .right-details {
+  text-align: right;
+  font-size: 0.875rem;
+}
+
+.template-header .right-details strong {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9CA3AF;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.estimate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  background: #F9FAFB;
+  border-radius: 8px;
+  border: 1px solid #E5E7EB;
+  margin-bottom: 1rem;
+}
+
+.estimate-box {
+  padding: 1.5rem;
+  text-align: center;
+  border-right: 1px solid #E5E7EB;
+}
+.estimate-box:last-child {
+  border-right: none;
+}
+
+.estimate-box .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9CA3AF;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+.estimate-box .amount {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.details-box {
+  background: #F9FAFB;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  padding: 1.5rem;
+}
+
+.details-box .label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9CA3AF;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.details-box .value {
+  font-weight: 600;
+  font-size: 1rem;
+  color: #111827;
+}
+
+.details-box .sub-value {
+  font-size: 0.875rem;
+  color: #6B7280;
+  margin-top: 0.25rem;
+}
+
+/* Tri Table specific styling */
+.tri-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+.tri-table th {
+  background: #E43A36;
+  color: white;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border: none;
+}
+
+.tri-table td {
+  padding: 1rem;
+  border-bottom: 1px solid #F3F4F6;
+  vertical-align: top;
+}
+
+.tri-table tr:last-child td {
+  border-bottom: none;
+}
+
+.banner-bottom {
+  background: #213547;
+  color: white;
+  padding: 1.5rem 2rem;
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2rem;
+}
+
+.banner-bottom .banner-label {
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9CA3AF;
+  margin-bottom: 0.25rem;
+}
+
+.banner-bottom .banner-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+/* Premium inputs for inline editing */
+.inline-input {
+  border: 1px solid transparent;
+  background: rgba(243, 244, 246, 0.7); /* Subtle cool gray */
+  border-radius: 6px;
+  width: 100%;
+  min-height: 1.5rem;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  font-weight: inherit;
+  padding: 6px 10px;
+  margin: -6px -10px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  text-align: inherit;
+}
+
+.inline-input:hover {
+  background: rgba(229, 231, 235, 0.9);
+}
+
+.inline-input:focus {
+  outline: none;
+  background: #FFFFFF;
+  border-color: #E43A36;
+  box-shadow: 0 0 0 3px rgba(228, 58, 54, 0.15), 0 1px 2px rgba(0,0,0,0.05);
+}
+
+.is-printing .inline-input {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-weight: 600 !important;
+}
+
+/* Darken standard gray colors when printing for better contrast */
+.is-printing [style*="#6B7280"], 
+.is-printing [style*="#9CA3AF"] {
+  color: #374151 !important;
+  font-weight: 600 !important;
+}
+
+.is-printing .estimate-grid, 
+.is-printing .details-box, 
+.is-printing .tri-table th, 
+.is-printing .banner-bottom {
+  -webkit-print-color-adjust: exact !important;
+  print-color-adjust: exact !important;
 }
