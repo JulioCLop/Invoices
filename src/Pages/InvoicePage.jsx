@@ -84,7 +84,7 @@ export default function InvoicePage() {
         el.classList.remove("is-printing");
       },
       opt: {
-        margin: [0.4, 0.4],
+        margin: 0,
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },
         jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
@@ -136,7 +136,7 @@ export default function InvoicePage() {
     fontSize: "0.58rem", fontWeight: 700, letterSpacing: "0.14em",
     textTransform: "uppercase", textAlign: "right", whiteSpace: "nowrap",
   };
-  const invoiceMetaWidth = 262;
+  const invoiceMetaWidth = 350;
   const invoiceValueStyle = {
     textAlign: "left",
     justifySelf: "start",
@@ -167,10 +167,10 @@ export default function InvoicePage() {
       </div>
 
       {/* DOCUMENT */}
-      <div ref={docRef} className="print-document" style={{ background: "#fff", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.10)", fontFamily: "'Outfit', sans-serif" }}>
+      <div ref={docRef} className="print-document" style={{ background: "#fff", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.10)", overflow: "hidden", fontFamily: "'Outfit', sans-serif" }}>
 
         {/* HEADER */}
-        <div style={{ background: "#213547", padding: "32px 44px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderRadius: "16px 16px 0 0" }}>
+        <div style={{ background: "#213547", padding: "40px 44px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
 
           {/* LEFT — logo + contact */}
           <div>
@@ -186,7 +186,7 @@ export default function InvoicePage() {
               INVOICE
             </div>
 
-            <div style={{ display: "grid", gridTemplateColumns: "88px 160px", columnGap: "14px", rowGap: "8px", alignItems: "center" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "100px 1fr", columnGap: "16px", rowGap: "12px", alignItems: "center" }}>
               {/* Invoice # */}
               <span style={{ ...rowLabelStyle, color: "#E43A36" }}>Invoice #</span>
               <input
@@ -235,37 +235,15 @@ export default function InvoicePage() {
         {/* BODY */}
         <div style={{ padding: "36px 44px" }}>
 
-          {/* INVOICE SUMMARY */}
-          <div style={{ marginBottom: "32px" }}>
-            <div className="section-label" style={{ marginBottom: "14px" }}>Invoice Summary</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", borderRadius: "12px", overflow: "hidden", border: "1px solid #E5E7EB" }}>
-              <div style={{ padding: "22px 20px", textAlign: "center", borderRight: "1px solid #E5E7EB", background: "#FAFAFA" }}>
-                <div style={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.12em", color: "#9CA3AF", textTransform: "uppercase", marginBottom: "10px" }}>Subtotal</div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#374151" }}>${subtotal ? fmt(subtotal) : "0.00"}</div>
-              </div>
-              <div style={{ padding: "22px 20px", textAlign: "center", borderRight: "1px solid #E5E7EB", background: "#FAFAFA" }}>
-                <div style={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.12em", color: "#9CA3AF", textTransform: "uppercase", marginBottom: "4px" }}>Sales Tax</div>
-                <div style={{ fontSize: "0.6rem", color: "#9CA3AF", marginBottom: "8px" }}>Thornton, CO · 8.6%</div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#374151" }}>${tax ? fmt(tax) : "0.00"}</div>
-              </div>
-              <div style={{ padding: "22px 20px", textAlign: "center", background: "#fff5f5", position: "relative" }}>
-                <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: "3px", background: "#E43A36" }} />
-                <div style={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.12em", color: "#E43A36", textTransform: "uppercase", marginBottom: "10px" }}>Total Amount Due</div>
-                <div style={{ fontSize: "1.5rem", fontWeight: 700, color: "#E43A36" }}>${totalDue ? fmt(totalDue) : "0.00"}</div>
-              </div>
-            </div>
-            <AutoTextarea className="inline-input" style={{ marginTop: "10px", fontSize: "0.78rem", color: "#6B7280" }} value={estSubtext} onChange={e => setEstSubtext(e.target.value)} placeholder="Add a note about this invoice…" />
-          </div>
-
           {/* SCOPE & PRICING */}
           <div style={{ marginBottom: "16px" }}>
             <div className="section-label" style={{ marginBottom: "14px" }}>Scope &amp; Pricing</div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.875rem", tableLayout: "fixed" }}>
               <thead>
                 <tr style={{ background: "#213547" }}>
                   <th style={{ padding: "11px 14px", textAlign: "left",  color: "#fff", fontWeight: 600, fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", width: "42%" }}>Service</th>
-                  <th style={{ padding: "11px 14px", textAlign: "left",  color: "#fff", fontWeight: 600, fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", width: "18%" }}>Rate / Hr</th>
-                  <th style={{ padding: "11px 14px", textAlign: "left",  color: "#fff", fontWeight: 600, fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", width: "14%" }}>Hrs</th>
+                  <th style={{ padding: "11px 14px", textAlign: "right", color: "#fff", fontWeight: 600, fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", width: "18%" }}>Rate / Hr</th>
+                  <th style={{ padding: "11px 14px", textAlign: "right", color: "#fff", fontWeight: 600, fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", width: "14%" }}>Hrs</th>
                   <th style={{ padding: "11px 14px", textAlign: "right", color: "#fff", fontWeight: 600, fontSize: "0.7rem", letterSpacing: "0.1em", textTransform: "uppercase", width: "22%" }}>Line Total</th>
                   <th className="no-print" style={{ width: "4%", background: "transparent" }} />
                 </tr>
@@ -278,13 +256,13 @@ export default function InvoicePage() {
                       <AutoTextarea className="inline-input" style={{ fontSize: "0.75rem", color: "#6B7280", marginTop: "3px" }} value={item.subtext} onChange={e => updateItem(i, "subtext", e.target.value)} placeholder="Description…" />
                     </td>
                     <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      <div style={{ display: "flex", alignItems: "center" }}>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end" }}>
                         <span style={{ color: "#9CA3AF", marginRight: "3px" }}>$</span>
-                        <input className="inline-input" style={{ flex: 1, minWidth: 0, color: "#374151" }} value={item.rate} onChange={e => updateItem(i, "rate", e.target.value)} placeholder="0.00" />
+                        <input className="inline-input" style={{ width: "60px", color: "#374151", textAlign: "right" }} value={item.rate} onChange={e => updateItem(i, "rate", e.target.value)} placeholder="0.00" />
                       </div>
                     </td>
                     <td style={{ padding: "12px 14px", verticalAlign: "top" }}>
-                      <input className="inline-input" style={{ color: "#374151" }} value={item.estHrs} onChange={e => updateItem(i, "estHrs", e.target.value)} placeholder="0" />
+                      <input className="inline-input" style={{ color: "#374151", textAlign: "right" }} value={item.estHrs} onChange={e => updateItem(i, "estHrs", e.target.value)} placeholder="0" />
                     </td>
                     <td style={{ padding: "12px 14px", verticalAlign: "top", textAlign: "right" }}>
                       <span style={{ fontWeight: 600, color: "#111827" }}>{item.high ? `$${item.high}` : "—"}</span>
@@ -295,19 +273,19 @@ export default function InvoicePage() {
                   </tr>
                 ))}
                 <tr style={{ borderTop: "2px solid #E5E7EB", background: "#F9FAFB" }}>
-                  <td colSpan={2} style={{ padding: "10px 14px", fontWeight: 600, color: "#6B7280", fontSize: "0.82rem" }}>Subtotal</td>
+                  <td colSpan={2} style={{ padding: "10px 14px", textAlign: "right", fontWeight: 600, color: "#6B7280", fontSize: "0.82rem" }}>Subtotal</td>
                   <td />
                   <td style={{ padding: "10px 14px", textAlign: "right", fontWeight: 700, color: "#111827" }}>{subtotal ? `$${fmt(subtotal)}` : "—"}</td>
                   <td className="no-print" />
                 </tr>
                 <tr style={{ background: "#F9FAFB" }}>
-                  <td colSpan={2} style={{ padding: "6px 14px", fontWeight: 600, color: "#6B7280", fontSize: "0.82rem" }}>Sales Tax (Thornton, CO · 8.6%)</td>
+                  <td colSpan={2} style={{ padding: "6px 14px", textAlign: "right", fontWeight: 600, color: "#6B7280", fontSize: "0.82rem" }}>Sales Tax (Thornton, CO · 8.6%)</td>
                   <td />
                   <td style={{ padding: "6px 14px", textAlign: "right", fontWeight: 600, color: "#6B7280" }}>{tax ? `$${fmt(tax)}` : "—"}</td>
                   <td className="no-print" />
                 </tr>
                 <tr style={{ background: "#fff5f5", borderTop: "1px solid #fecaca" }}>
-                  <td colSpan={2} style={{ padding: "12px 14px", fontWeight: 700, color: "#E43A36", fontSize: "0.9rem" }}>Total Due</td>
+                  <td colSpan={2} style={{ padding: "12px 14px", textAlign: "right", fontWeight: 700, color: "#E43A36", fontSize: "0.9rem" }}>Total Due</td>
                   <td />
                   <td style={{ padding: "12px 14px", textAlign: "right", fontWeight: 800, color: "#E43A36", fontSize: "1rem" }}>{totalDue ? `$${fmt(totalDue)}` : "—"}</td>
                   <td className="no-print" />
@@ -318,21 +296,27 @@ export default function InvoicePage() {
 
           <button className="btn btn-secondary no-print" onClick={addRow} style={{ fontSize: "0.82rem", padding: "0.45rem 1rem", marginBottom: "32px" }}>+ Add Row</button>
 
-          {/* BOTTOM BANNER */}
-          <div style={{ background: "linear-gradient(135deg, #1a2d3d 0%, #213547 60%, #2a4460 100%)", borderRadius: "12px", padding: "28px 32px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.18em", color: "#E43A36", textTransform: "uppercase", marginBottom: "6px" }}>Total Amount Due</div>
-              <div style={{ fontSize: "0.82rem", color: "rgba(255,255,255,0.45)" }}>Please remit payment within 15 days</div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: "2rem", fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>${totalDue ? fmt(totalDue) : "0.00"}</div>
-              <div style={{ fontSize: "0.7rem", color: "rgba(255,255,255,0.35)", marginTop: "4px" }}>incl. {fmt(tax || 0)} tax (8.6%)</div>
-            </div>
+          {/* NOTES SECTION */}
+          <div style={{ marginBottom: "32px", padding: "0 14px" }}>
+            <div className="section-label" style={{ marginBottom: "8px" }}>Notes</div>
+            <AutoTextarea className="inline-input" style={{ fontSize: "0.85rem", color: "#6B7280" }} value={estSubtext} onChange={e => setEstSubtext(e.target.value)} placeholder="Add a note or payment instructions…" />
+          </div>
           </div>
 
-          <div style={{ textAlign: "center", fontSize: "0.6rem", marginTop: "28px", color: "#D1D5DB", letterSpacing: "0.05em" }}>
-            {fmtInvNum(invoiceNumber)} &nbsp;·&nbsp; Tri-Tech &nbsp;·&nbsp; tritechdevsolutions@gmail.com
+        {/* BOTTOM BANNER */}
+        <div style={{ background: "linear-gradient(135deg, #1a2d3d 0%, #213547 60%, #2a4460 100%)", padding: "36px 44px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div>
+            <div style={{ fontSize: "0.65rem", fontWeight: 700, letterSpacing: "0.18em", color: "#E43A36", textTransform: "uppercase", marginBottom: "6px" }}>Total Amount Due</div>
+            <div style={{ fontSize: "0.85rem", color: "rgba(255,255,255,0.45)" }}>Please remit payment within 15 days</div>
           </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: "2.2rem", fontWeight: 800, color: "#fff", letterSpacing: "-0.02em" }}>${totalDue ? fmt(totalDue) : "0.00"}</div>
+            <div style={{ fontSize: "0.75rem", color: "rgba(255,255,255,0.35)", marginTop: "4px" }}>incl. {fmt(tax || 0)} tax (8.6%)</div>
+          </div>
+        </div>
+
+        <div style={{ textAlign: "center", fontSize: "0.65rem", padding: "28px 0", color: "#9CA3AF", letterSpacing: "0.05em", background: "#f9fafb" }}>
+          {fmtInvNum(invoiceNumber)} &nbsp;·&nbsp; Tri-Tech &nbsp;·&nbsp; tritechdevsolutions@gmail.com
         </div>
       </div>
 

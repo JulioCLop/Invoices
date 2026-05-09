@@ -383,29 +383,31 @@ a:hover {
 /* Premium inputs for inline editing */
 .inline-input {
   border: 1px solid transparent;
-  background: rgba(243, 244, 246, 0.7); /* Subtle cool gray */
-  border-radius: 6px;
+  background: transparent;
+  border-radius: 4px;
   width: 100%;
   min-height: 1.5rem;
   font-family: inherit;
   font-size: inherit;
   color: inherit;
   font-weight: inherit;
-  padding: 6px 10px;
-  margin: -6px -10px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 4px 6px;
+  margin: -4px -6px;
+  transition: all 0.2s ease;
   text-align: inherit;
 }
 
 .inline-input:hover {
-  background: rgba(229, 231, 235, 0.9);
+  background: rgba(156, 163, 175, 0.15);
+  border-color: rgba(156, 163, 175, 0.25);
 }
 
 .inline-input:focus {
   outline: none;
-  background: #FFFFFF;
+  background: #FFFFFF !important;
+  color: #111827 !important;
   border-color: #E43A36;
-  box-shadow: 0 0 0 3px rgba(228, 58, 54, 0.15), 0 1px 2px rgba(0,0,0,0.05);
+  box-shadow: 0 0 0 3px rgba(228, 58, 54, 0.15);
 }
 
 .is-printing .inline-input {

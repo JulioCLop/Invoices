@@ -105,11 +105,16 @@ export default function QuotePage() {
       textarea.style.height = `${textarea.scrollHeight + 4}px`;
     });
     const w = el.scrollWidth;
-    const h = el.scrollHeight;
-    const pageWidthMm = 210;
-    const pageHeightMm = (h / w) * pageWidthMm + 6;
+    const minPageHeight = Math.ceil(w * (11 / 8.5));
+    el.style.minHeight = `${minPageHeight}px`;
+    await new Promise(r => requestAnimationFrame(r));
+    const h = Math.max(el.scrollHeight, minPageHeight);
     return {
       el,
+      cleanup: () => {
+        el.style.minHeight = "";
+        el.classList.remove("is-printing");
+      },
       opt: {
         margin: 0,
         image: { type: "jpeg", quality: 0.98 },
@@ -121,7 +126,8 @@ export default function QuotePage() {
           height: h,
           windowWidth: w,
         },
-        jsPDF: { unit: "mm", format: [pageWidthMm, pageHeightMm], orientation: "portrait" },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
       },
     };
   };
@@ -129,11 +135,11 @@ export default function QuotePage() {
   const generatePDF = async () => {
     if (generating) return;
     setGenerating(true);
-    const { el, opt } = await buildPDF();
+    const pdf = await buildPDF();
     try {
-      await html2pdf().set({ ...opt, filename: `Quote_${clientName || 'Draft'}.pdf` }).from(el).save();
+      await html2pdf().set({ ...pdf.opt, filename: `Quote_${clientName || 'Draft'}.pdf` }).from(pdf.el).save();
     } finally {
-      el.classList.remove("is-printing");
+      pdf.cleanup();
       setGenerating(false);
     }
   };
@@ -143,12 +149,12 @@ export default function QuotePage() {
     setGenerating(true);
     setIsPreviewOpen(true);
     setPreviewUrl(null);
-    const { el, opt } = await buildPDF();
+    const pdf = await buildPDF();
     try {
-      const url = await html2pdf().set({ ...opt, filename: "preview.pdf" }).from(el).output("bloburl");
+      const url = await html2pdf().set({ ...pdf.opt, filename: "preview.pdf" }).from(pdf.el).output("bloburl");
       setPreviewUrl(url);
     } finally {
-      el.classList.remove("is-printing");
+      pdf.cleanup();
       setGenerating(false);
     }
   };
@@ -194,7 +200,7 @@ export default function QuotePage() {
       </div>
 
       {/* DOCUMENT */}
-      <div ref={docRef} style={{
+      <div ref={docRef} className="print-document" style={{
         background: '#fff',
         borderRadius: '16px',
         boxShadow: '0 8px 32px rgba(0,0,0,0.10)',
