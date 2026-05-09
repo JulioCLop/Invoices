@@ -409,10 +409,25 @@ a:hover {
 }
 
 .is-printing .inline-input {
-  border-color: transparent !important;
+  border: none !important;
   background: transparent !important;
   box-shadow: none !important;
   font-weight: 600 !important;
+  outline: none !important;
+  resize: none !important;
+  -webkit-appearance: none !important;
+  appearance: none !important;
+  caret-color: transparent !important;
+}
+
+.is-printing .inline-input::placeholder {
+  color: transparent !important;
+}
+.is-printing .inline-input::-webkit-input-placeholder {
+  color: transparent !important;
+}
+.is-printing .inline-input::-moz-placeholder {
+  color: transparent !important;
 }
 
 /* Darken standard gray colors when printing for better contrast */

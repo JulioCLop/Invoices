@@ -17,8 +17,30 @@
 
 /* Print & PDF Export Styles */
 @media print {
+  @page {
+    size: letter;
+    margin: 0;
+  }
+
+  html,
   body {
     background: white;
+    margin: 0;
+    width: 100%;
+  }
+
+  .container {
+    max-width: none !important;
+    width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .print-document {
+    width: 100% !important;
+    min-height: 100vh !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
   }
   
   .no-print {
@@ -32,11 +54,33 @@
     -webkit-backdrop-filter: none !important;
     background: white !important;
   }
+
+  .inline-input {
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    font-weight: 600 !important;
+    outline: none !important;
+    resize: none !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    caret-color: transparent !important;
+  }
+
+  .inline-input::placeholder,
+  .inline-input::-webkit-input-placeholder,
+  .inline-input::-moz-placeholder {
+    color: transparent !important;
+  }
 }
 
 /* PDF Generation Classes (.is-printing) */
 .is-printing {
   background: white !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  width: 100% !important;
+  overflow: visible !important;
 }
 
 .is-printing .no-print {
@@ -50,4 +94,3 @@
   -webkit-backdrop-filter: none !important;
   background: white !important;
 }
-

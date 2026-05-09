@@ -74,16 +74,22 @@ export default function InvoicePage() {
       textarea.style.height = `${textarea.scrollHeight + 4}px`;
     });
     const w = el.scrollWidth;
-    const h = el.scrollHeight;
-    const pageWidthMm = 210;
-    const pageHeightMm = (h / w) * pageWidthMm + 6;
+    const minPageHeight = Math.ceil(w * (11 / 8.5));
+    el.style.minHeight = `${minPageHeight}px`;
+    await new Promise(r => requestAnimationFrame(r));
+    const h = Math.max(el.scrollHeight, minPageHeight);
     return {
       el,
+      cleanup: () => {
+        el.style.minHeight = "";
+        el.classList.remove("is-printing");
+      },
       opt: {
-        margin: 0,
+        margin: [0.4, 0.4],
         image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false, width: w, height: h, windowWidth: w },
-        jsPDF: { unit: "mm", format: [pageWidthMm, pageHeightMm], orientation: "portrait" },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: "in", format: "letter", orientation: "portrait" },
+        pagebreak: { mode: ["avoid-all", "css", "legacy"] },
       },
     };
   };
@@ -91,14 +97,14 @@ export default function InvoicePage() {
   const generatePDF = async () => {
     if (generating) return;
     setGenerating(true);
-    const { el, opt } = await buildPDF();
+    const { el, cleanup, opt } = await buildPDF();
     try {
       await html2pdf().set({ ...opt, filename: `${fmtInvNum(invoiceNumber)}_${clientName || "Draft"}.pdf` }).from(el).save();
       const next = invoiceNumber + 1;
       setInvoiceNumber(next);
       localStorage.setItem("tri_inv_number", String(next));
     } finally {
-      el.classList.remove("is-printing");
+      cleanup();
       setGenerating(false);
     }
   };
@@ -108,12 +114,12 @@ export default function InvoicePage() {
     setGenerating(true);
     setIsPreviewOpen(true);
     setPreviewUrl(null);
-    const { el, opt } = await buildPDF();
+    const { el, cleanup, opt } = await buildPDF();
     try {
       const url = await html2pdf().set({ ...opt, filename: "preview.pdf" }).from(el).output("bloburl");
       setPreviewUrl(url);
     } finally {
-      el.classList.remove("is-printing");
+      cleanup();
       setGenerating(false);
     }
   };
@@ -162,7 +168,7 @@ export default function InvoicePage() {
       </div>
 
       {/* DOCUMENT */}
-      <div ref={docRef} style={{ background: "#fff", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.10)", fontFamily: "'Outfit', sans-serif" }}>
+      <div ref={docRef} className="print-document" style={{ background: "#fff", borderRadius: "16px", boxShadow: "0 8px 32px rgba(0,0,0,0.10)", fontFamily: "'Outfit', sans-serif" }}>
 
         {/* HEADER */}
         <div style={{ background: "#213547", padding: "32px 44px", display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderRadius: "16px 16px 0 0" }}>

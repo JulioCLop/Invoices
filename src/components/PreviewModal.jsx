@@ -12,7 +12,7 @@ export default function PreviewModal({ isOpen, onClose, pdfUrl, title }) {
         <div className="modal-body">
           {pdfUrl ? (
             <iframe 
-              src={pdfUrl} 
+              src={`${pdfUrl}#view=FitH&navpanes=0`} 
               title="PDF Preview" 
               className="pdf-iframe"
             />
